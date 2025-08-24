@@ -30,29 +30,38 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link active" href="#dashboard">Dashboard</a>
+                        <a class="nav-link active" href="#dashboard" data-i18n="dashboard">仪表板</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#keys">Keys</a>
+                        <a class="nav-link" href="#keys" data-i18n="keys">密钥管理</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#scanner">Scanner</a>
+                        <a class="nav-link" href="#scanner" data-i18n="scanner">扫描器</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#queries">Query Rules</a>
+                        <a class="nav-link" href="#queries" data-i18n="queries">查询规则</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#settings">Settings</a>
+                        <a class="nav-link" href="#settings" data-i18n="settings">设置</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#logs">Logs</a>
+                        <a class="nav-link" href="#logs" data-i18n="logs">日志</a>
                     </li>
                 </ul>
                 
                 <ul class="navbar-nav">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="languageDropdown" role="button" data-bs-toggle="dropdown">
+                            <i class="fas fa-globe"></i> 中文
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" onclick="switchLanguage('zh')">🇨🇳 中文</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="switchLanguage('en')">🇺🇸 English</a></li>
+                        </ul>
+                    </li>
                     <li class="nav-item">
                         <span class="navbar-text">
-                            <span id="connection-status" class="badge bg-success">Connected</span>
+                            <span id="connection-status" class="badge bg-success" data-i18n="connected">已连接</span>
                         </span>
                     </li>
                 </ul>
@@ -71,7 +80,7 @@
                         <div class="card-body">
                             <div class="row">
                                 <div class="col">
-                                    <h5 class="card-title">Valid Keys</h5>
+                                    <h5 class="card-title" data-i18n="valid_keys">有效密钥</h5>
                                     <h2 id="valid-keys-count">0</h2>
                                 </div>
                                 <div class="col-auto">
@@ -87,7 +96,7 @@
                         <div class="card-body">
                             <div class="row">
                                 <div class="col">
-                                    <h5 class="card-title">Rate Limited</h5>
+                                    <h5 class="card-title" data-i18n="rate_limited">限流密钥</h5>
                                     <h2 id="rate-limited-count">0</h2>
                                 </div>
                                 <div class="col-auto">
@@ -103,7 +112,7 @@
                         <div class="card-body">
                             <div class="row">
                                 <div class="col">
-                                    <h5 class="card-title">Files Scanned</h5>
+                                    <h5 class="card-title" data-i18n="files_scanned">已扫描文件</h5>
                                     <h2 id="files-scanned-count">0</h2>
                                 </div>
                                 <div class="col-auto">
@@ -119,7 +128,7 @@
                         <div class="card-body">
                             <div class="row">
                                 <div class="col">
-                                    <h5 class="card-title">Scan Status</h5>
+                                    <h5 class="card-title" data-i18n="scan_status">扫描状态</h5>
                                     <h4 id="scan-status">Idle</h4>
                                 </div>
                                 <div class="col-auto">
@@ -726,6 +735,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
     
     <!-- Custom JS -->
+    <script src="/static/js/i18n.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>

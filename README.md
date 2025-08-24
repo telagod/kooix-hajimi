@@ -1,288 +1,112 @@
 # Kooix Hajimi
 
-一个高性能的多提供商API密钥发现工具的Go重构版本，支持Gemini、OpenAI、Claude密钥发现和智能层级检测。
+一个高性能的多提供商API密钥发现和安全通知工具，使用Go重写，支持Gemini、OpenAI、Claude密钥发现、智能层级检测和自动安全通知。
 
-## 🚀 主要特性
+## ✨ 主要特性
 
-### 🔑 多提供商API密钥支持
-- **Gemini API**: `AIzaSy[A-Za-z0-9\-_]{33}` 模式识别
-- **OpenAI API**: `sk-[A-Za-z0-9]{48}` 和 `sk-proj-[A-Za-z0-9]{48}` 模式
-- **Claude API**: `sk-ant-api03-[A-Za-z0-9\-_]{95}AA` 模式
-- **智能验证**: HTTP请求验证，成本优化的检测方案
-- **错误分类**: 精确识别无效密钥、限流状态、账户禁用等
-- **层级检测**: 自动识别Gemini免费/付费账户，优先使用付费密钥
+- 🔐 **多提供商支持**: Gemini、OpenAI、Claude密钥自动发现和验证
+- 🎯 **安全通知系统**: 发现密钥泄露时自动创建GitHub issue提醒
+- 🧠 **智能层级检测**: 自动识别免费/付费账户，优先使用付费密钥
+- 🚀 **高性能扫描**: Go并发处理，5-10倍性能提升
+- 🌐 **现代Web界面**: 实时仪表板，中英文支持，WebSocket更新
+- ⚙️ **零配置管理**: Web界面直接配置，实时生效
 
-### 性能提升
-- **高并发扫描**: 使用goroutines实现真正的并发处理
-- **智能限流**: 自适应限流算法，最大化API利用率
-- **内存优化**: 低内存占用，支持大规模扫描
-- **快速部署**: 单二进制文件，秒级启动
+## 🚀 快速开始
 
-### 🌐 Web界面和配置管理
-- **实时Web界面**: 现代化仪表板和设置页面
-- **无需环境变量**: Web界面直接配置，实时生效
-- **多存储支持**: SQLite、PostgreSQL支持
-- **WebSocket实时更新**: 实时状态和进度推送
-- **RESTful API**: 完整的API接口
-- **密钥管理**: 层级显示、批量操作、智能过滤
+### Docker部署（推荐）
 
-### 架构改进
-- **模块化设计**: 清晰的分层架构
-- **可扩展性**: 支持水平扩展部署
-- **监控完善**: 详细的指标和日志
-- **容器优化**: 优化的Docker镜像
-
-## 📁 项目结构
-
-```
-kooix-hajimi/
-├── cmd/                    # 应用入口
-│   ├── server/            # Web服务器
-│   └── cli/               # 命令行工具
-├── internal/              # 内部包
-│   ├── config/           # 配置管理
-│   ├── github/           # GitHub API客户端
-│   ├── scanner/          # 扫描器核心
-│   ├── storage/          # 数据存储层
-│   ├── validator/        # 密钥验证器
-│   ├── ratelimit/        # 限流管理
-│   ├── sync/            # 外部同步
-│   └── web/             # Web服务
-├── pkg/                   # 公共包
-│   ├── logger/          # 日志工具
-│   └── utils/           # 通用工具
-├── web/                   # Web资源
-│   ├── static/          # 静态文件
-│   └── templates/       # HTML模板
-├── configs/              # 配置文件
-├── scripts/             # 构建脚本
-└── docs/                # 文档
-```
-
-## 🛠️ 快速开始
-
-### 环境要求
-- Go 1.21+
-- Docker (可选)
-- SQLite3
-
-### 本地开发
-
-1. **克隆项目**
-```bash
-git clone <repo-url>
-cd kooix-hajimi
-```
-
-2. **配置环境**
-```bash
-# 复制配置文件
-cp configs/config.yaml.example configs/config.yaml
-
-# 设置GitHub Token
-export HAJIMI_GITHUB_TOKENS="your_token_1,your_token_2"
-```
-
-3. **安装依赖**
-```bash
-go mod tidy
-```
-
-4. **运行服务**
-```bash
-# 开发模式
-go run cmd/server/main.go
-
-# 或使用构建脚本
-./scripts/build.sh all
-./build/hajimi-king-server
-```
-
-5. **访问界面**
-打开浏览器访问: http://localhost:8080
-
-### Docker部署
-
-#### 使用GitHub Container Registry
-
-**从GitHub Container Registry拉取镜像：**
 ```bash
 # 拉取最新镜像
-docker pull ghcr.io/your-username/kooix-hajimi:latest
+docker pull ghcr.io/telagod/kooix-hajimi:latest
 
-# 拉取指定版本
-docker pull ghcr.io/your-username/kooix-hajimi:v1.0.0
-```
-
-**运行容器：**
-```bash
-# 设置环境变量
+# 设置GitHub Token
 export GITHUB_TOKENS="your_token_1,your_token_2"
 
-# 单独运行
+# 运行容器
 docker run -d \
   --name kooix-hajimi \
   -p 8080:8080 \
   -e HAJIMI_GITHUB_TOKENS="$GITHUB_TOKENS" \
   -v ./data:/app/data \
-  ghcr.io/your-username/kooix-hajimi:latest
+  ghcr.io/telagod/kooix-hajimi:latest
 ```
 
-#### 使用docker-compose
+### 源码安装
 
-1. **修改docker-compose.yml镜像地址：**
-```yaml
-services:
-  kooix-hajimi:
-    image: ghcr.io/your-username/kooix-hajimi:latest
-    # ... 其他配置
-```
-
-2. **启动服务：**
 ```bash
-# 设置环境变量
-export GITHUB_TOKENS="your_token_1,your_token_2"
+# 克隆项目
+git clone https://github.com/telagod/kooix-hajimi.git
+cd kooix-hajimi
 
-# 启动服务
-docker-compose up -d
-
-# 查看日志
-docker-compose logs -f
+# 构建运行
+./scripts/build.sh all
+export HAJIMI_GITHUB_TOKENS="your_tokens"
+./build/hajimi-server
 ```
 
-#### 自动构建
+### 访问界面
 
-**GitHub Actions自动构建：**
-- ✅ 推送到 `main`/`develop` 分支时自动构建
-- ✅ 发布标签时自动构建版本镜像
-- ✅ 支持多平台镜像 (AMD64/ARM64)
-- ✅ 发布到 GitHub Container Registry (ghcr.io)
-- ✅ 无需配置额外secrets，使用GitHub原生支持
+打开浏览器访问: http://localhost:8080
 
-## ⚙️ 配置说明
+## 📚 文档
 
-### 核心配置
+| 文档 | 说明 |
+|------|------|
+| [安装指南](docs/setup/installation.md) | 详细安装步骤和环境配置 |
+| [配置指南](docs/setup/configuration.md) | 完整配置参数说明 |
+| [GitHub权限](docs/security/github-permissions.md) | GitHub Token权限配置 |
+| [API文档](docs/api/README.md) | REST API和WebSocket接口 |
+| [部署指南](docs/deployment/README.md) | Docker、K8s等部署方案 |
+
+## 🔑 GitHub Token权限
+
+### 基础扫描功能
+- ✅ `public_repo` - 搜索公共仓库
+- ✅ `read:user` - API配额管理
+
+### 安全通知功能（可选）
+- ⚠️ `repo` - 创建安全警告issue
+- ⚠️ `write:issues` - issue管理权限
+
+> **重要**: 安全通知功能会在发现密钥的仓库中自动创建public issue。建议先使用`dry_run: true`模式测试。
+
+## ⚙️ 核心配置
 
 ```yaml
 # GitHub配置
 github:
-  tokens: []  # 从环境变量读取
-  timeout: 30s
-  max_retries: 5
+  tokens: []  # 通过HAJIMI_GITHUB_TOKENS环境变量设置
 
-# 扫描器配置
+# 扫描器配置  
 scanner:
-  worker_count: 20      # 并发工作数
-  batch_size: 100       # 批处理大小
-  scan_interval: 10s    # 扫描间隔
-  auto_start: false     # 自动启动
-  
-  # 验证器配置 🆕
-  validator:
-    model_name: "gemini-2.5-flash"           # 验证模型
-    tier_detection_model: "gemini-2.5-flash" # 层级检测模型
-    worker_count: 5                          # 验证器worker数
-    timeout: 30s                             # 验证超时
-    enable_tier_detection: true              # 启用层级检测
+  worker_count: 20
+  batch_size: 100
+  auto_start: false
 
-# Web服务配置  
-web:
-  enabled: true
-  host: "0.0.0.0"
-  port: 8080
-  cors_enabled: true
+# 安全通知配置
+security_notifications:
+  enabled: true              # 启用安全通知
+  create_issues: true        # 自动创建GitHub issues
+  notify_on_severity: "high" # 通知级别: all, high, critical  
+  dry_run: false            # 测试模式
 
-# 存储配置
-storage:
-  type: "sqlite"        # sqlite, postgres
-  dsn: "data/hajimi-king.db"
-
-# 限流配置
-rate_limit:
-  enabled: true
-  requests_per_minute: 30
-  adaptive_enabled: true    # 自适应限流
+# 验证器配置
+validator:
+  model_name: "gemini-2.5-flash"
+  enable_tier_detection: true  # 启用层级检测
 ```
 
-### 环境变量
+## 🔒 安全特性
 
-| 变量名 | 说明 | 默认值 |
-|--------|------|--------|
-| `HAJIMI_GITHUB_TOKENS` | GitHub API Token(逗号分隔) | 必填 |
-| `HAJIMI_LOG_LEVEL` | 日志级别 | info |
-| `HAJIMI_WEB_PORT` | Web服务端口 | 8080 |
-| `HAJIMI_SCANNER_WORKER_COUNT` | 扫描并发数 | 20 |
-| `HAJIMI_VALIDATOR_MODEL_NAME` | 验证模型 | gemini-2.5-flash |
-| `HAJIMI_ENABLE_TIER_DETECTION` | 启用层级检测 | true |
+### 严重级别分类
+- 🔴 **Critical**: AWS、GitHub、Stripe等高风险服务
+- 🟠 **High**: OpenAI、Gemini、Claude等AI服务  
+- 🟡 **Medium**: 其他API服务
 
-## 🖥️ Web界面功能
-
-### 仪表板
-- 实时扫描状态监控
-- 密钥发现统计图表
-- 系统资源使用情况
-- 最近发现的密钥列表
-
-### 密钥管理
-- 多提供商密钥列表和详情
-- 智能层级显示（免费/付费/未知）
-- 限流密钥管理
-- 批量操作和搜索
-- 按层级和提供商过滤
-
-### 🖥️ Web界面功能
-
-### 仪表板
-- 实时扫描状态监控
-- 多提供商密钥发现统计图表
-- 系统资源使用情况
-- 最近发现的密钥列表
-
-### 密钥管理
-- **多提供商密钥**: Gemini、OpenAI、Claude密钥统一管理
-- **智能层级显示**: 免费/付费/未知层级，置信度显示
-- **提供商过滤**: 按API提供商类型筛选
-- **批量操作**: 多选删除、导出等功能
-- **搜索功能**: 按仓库名、文件路径搜索
-
-### 设置页面 🆕
-- **验证器设置**: 验证模型、层级检测模型、worker配置
-- **扫描器设置**: 并发数、批次大小、扫描间隔、日期范围
-- **限流设置**: 请求频率、突发大小、自适应限流
-- **层级筛选**: 优先使用付费密钥、按层级过滤
-- **实时配置**: 配置更改立即生效，无需重启服务器
-
-### 扫描控制
-- 一键启动/停止扫描
-- 扫描进度实时跟踪
-- 配置参数调整
-- 查询表达式管理
-
-### 日志监控
-- 实时日志流
-- 日志级别过滤
-- 错误统计和告警
-- 系统健康检查
-
-## 🆕 新功能亮点
-
-### 多提供商API密钥支持
-- **全面支持**: 支持Gemini、OpenAI、Claude三大主流AI服务商
-- **智能检测**: 使用优化的正则表达式和HTTP验证
-- **统一管理**: 单一界面管理所有类型的API密钥
-- **错误分类**: 精确区分无效、限流、禁用等状态
-
-### 智能层级检测系统
-- **自动识别**: 通过模型访问测试区分免费/付费Gemini账户
-- **置信度评估**: 提供检测结果的可信度评分
-- **优先级管理**: 优先使用付费密钥，提高成功率
-- **可配置检测**: 支持自定义检测模型和参数
-
-### Web配置管理
-- **零依赖配置**: 完全通过Web界面配置，无需修改环境变量
-- **实时生效**: 配置更改立即生效，无需重启服务
-- **可视化设置**: 直观的表单界面，支持参数验证
-- **配置持久化**: 自动保存到配置文件，重启后保持
+### 智能通知策略
+- **干运行模式**: 测试配置而不创建真实issue
+- **级别过滤**: 可配置只对特定级别创建通知
+- **详细模板**: 提供专业的安全修复指导
 
 ## 📊 性能对比
 
@@ -292,158 +116,53 @@ rate_limit:
 | 并发处理 | 单线程 | 多goroutine | 20x |
 | 启动时间 | ~5s | ~0.5s | 10x |
 | 扫描速度 | 基准 | 5-10x | 5-10x |
-| 部署大小 | ~200MB | ~50MB | 4x |
-| API提供商 | 仅Gemini | Gemini/OpenAI/Claude | 3x |
-| 层级检测 | 无 | 智能检测 | ∞ |
+| API提供商 | 仅Gemini | 多提供商 | 3x |
 
-## 🔧 API接口
+## 🔧 主要接口
 
-### 系统状态
-- `GET /api/status` - 系统状态
-- `GET /api/stats` - 统计信息
-
-### 扫描控制
-- `POST /api/scan/start` - 开始扫描
-- `POST /api/scan/stop` - 停止扫描
-- `GET /api/scan/status` - 扫描状态
-
-### 密钥管理
-- `GET /api/keys/valid` - 获取有效密钥（支持提供商、层级过滤）
-- `GET /api/keys/rate-limited` - 获取限流密钥
-- `DELETE /api/keys/valid/:id` - 删除密钥
-
-### 配置管理 🆕
-- `GET /api/config` - 获取当前配置
-- `PUT /api/config` - 更新配置（实时生效）
+### REST API
+- `GET /api/stats` - 系统统计
+- `POST /api/scan/start` - 开始扫描  
+- `GET /api/keys/valid` - 有效密钥列表
+- `PUT /api/config` - 更新配置
 
 ### WebSocket
 - `WS /api/ws` - 实时数据推送
 
-## 🚀 部署建议
+## 🚀 部署方案
+
+### 开发环境
+```bash
+docker-compose up -d
+```
 
 ### 生产环境
 ```bash
-# 使用GitHub Container Registry镜像
-docker run -d \
-  --name kooix-hajimi \
-  -p 8080:8080 \
-  -e HAJIMI_GITHUB_TOKENS="your_tokens" \
-  -e HAJIMI_STORAGE_TYPE="postgres" \
-  -e HAJIMI_STORAGE_DSN="postgres://..." \
-  ghcr.io/your-username/kooix-hajimi:latest
-
-# 或使用PostgreSQL compose配置
+# PostgreSQL + 高可用
 docker-compose --profile postgres up -d
 ```
 
-### 高可用部署
-- 使用PostgreSQL集群
-- Redis缓存分布式锁
-- 负载均衡多实例
-- Prometheus监控
+### Kubernetes
+参见 [部署指南](docs/deployment/README.md) 中的K8s配置。
 
-### 监控告警
-```yaml
-# docker-compose.monitoring.yml
-version: '3.8'
-services:
-  prometheus:
-    image: prom/prometheus
-    # ... 配置省略
-  
-  grafana:
-    image: grafana/grafana
-    # ... 配置省略
-```
+## 🤝 贡献
 
-## 🔒 安全建议
-
-### 🔑 GitHub Token权限配置
-
-**必需权限 (基础扫描功能)**:
-- ✅ `public_repo` - 搜索公共仓库代码
-- ✅ `read:user` - 读取用户信息 (用于API配额管理)
-
-**安全通知功能权限 (可选)**:
-- ⚠️ `repo` - 在发现密钥泄露的仓库中创建安全警告issue
-- ⚠️ `write:issues` - 创建和编辑issues
-
-**权限设置说明**:
-```bash
-# 基础Token (仅扫描，不创建issues)
-# Scopes: public_repo, read:user
-
-# 完整Token (包含安全通知功能)  
-# Scopes: repo, read:user
-# 注意: repo权限包含对所有仓库的完整访问，请谨慎使用
-```
-
-**推荐配置策略**:
-1. **开发/测试环境**: 使用基础权限token，启用`dry_run`模式测试
-2. **生产环境**: 根据实际需求选择权限级别
-   - 仅监控: 使用基础权限
-   - 主动通知: 使用完整权限，但启用严格的severity过滤
-
-**🚨 重要安全提醒**:
-- 启用issue创建功能会在发现密钥的仓库中自动创建public issue
-- 建议在生产环境使用前先在测试仓库验证配置
-- 可以通过`notify_on_severity`设置只对critical级别密钥创建issue
-- 强烈推荐先使用`dry_run: true`模式测试配置
-
-### 安全通知配置
-
-```yaml
-scanner:
-  security_notifications:
-    enabled: true              # 启用安全通知
-    create_issues: true        # 自动创建GitHub issues  
-    notify_on_severity: "high" # 通知级别: all, high, critical
-    dry_run: false            # 测试模式，不创建实际issue
-```
-
-**严重级别分类**:
-- 🔴 **Critical**: AWS、GitHub、Stripe等高风险服务
-- 🟠 **High**: OpenAI、Gemini、Claude等AI服务  
-- 🟡 **Medium**: 其他API服务
-
-### 传统安全建议
-
-1. **Token管理**
-   - 定期轮换GitHub Token
-   - 使用最小权限原则
-   - 环境变量存储敏感信息
-
-2. **网络安全**  
-   - 启用HTTPS
-   - 配置防火墙
-   - API访问限制
-
-3. **数据安全**
-   - 数据库加密
-   - 备份策略
-   - 访问日志审计
-
-## 📈 监控指标
-
-- 扫描进度和速度
-- API请求成功率
-- 内存和CPU使用率
-- 数据库连接状态
-- Token限流状态
-
-## 🤝 贡献指南
-
-1. Fork项目
-2. 创建功能分支
-3. 提交变更
-4. 发起Pull Request
+1. Fork 项目
+2. 创建功能分支 (`git checkout -b feature/amazing-feature`)
+3. 提交更改 (`git commit -m 'Add amazing feature'`)
+4. 推送分支 (`git push origin feature/amazing-feature`)
+5. 创建 Pull Request
 
 ## 📄 许可证
 
-MIT License
+MIT License - 查看 [LICENSE](LICENSE) 文件了解详情
 
 ## 🆘 支持
 
-- 问题反馈: [GitHub Issues](https://github.com/your-repo/issues)
-- 文档: [在线文档](https://docs.your-domain.com)
-- 社区: [Discussion](https://github.com/your-repo/discussions)
+- 🐛 问题反馈: [GitHub Issues](https://github.com/telagod/kooix-hajimi/issues)
+- 💬 讨论交流: [GitHub Discussions](https://github.com/telagod/kooix-hajimi/discussions)
+- 📖 在线文档: [docs/](docs/)
+
+---
+
+**⚠️ 免责声明**: 此工具仅用于安全研究和漏洞披露。使用者需自行承担使用责任，确保遵守相关法律法规。

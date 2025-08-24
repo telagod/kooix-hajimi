@@ -13,6 +13,8 @@ class HajimiKingApp {
     }
 
     init() {
+        // Initialize internationalization
+        this.initI18n();
         this.initWebSocket();
         this.initEventListeners();
         this.initCharts();
@@ -24,6 +26,11 @@ class HajimiKingApp {
                 this.loadStats();
             }
         }, 10000);
+    }
+
+    initI18n() {
+        // Initialize current language
+        updatePageTexts();
     }
 
     initWebSocket() {
