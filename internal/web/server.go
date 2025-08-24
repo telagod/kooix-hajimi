@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"kooix-hajimi/internal/config"
+	"kooix-hajimi/internal/github"
 	"kooix-hajimi/internal/scanner"
 	"kooix-hajimi/internal/storage"
 	"kooix-hajimi/pkg/logger"
@@ -171,6 +172,15 @@ func (s *Server) setupRoutes() {
 		api.GET("/queries", s.handleGetQueries)
 		api.PUT("/queries", s.handleUpdateQueries)
 		api.GET("/queries/default", s.handleGetDefaultQueries)
+		
+		// 安全审核管理
+		security := api.Group("/security")
+		{
+			security.GET("/pending", s.handleGetPendingSecurityIssues)
+			security.POST("/review/:id", s.handleReviewSecurityIssue)
+			security.POST("/create-issue/:id", s.handleCreateSecurityIssue)
+			security.GET("/issue/:id", s.handleGetSecurityIssue)
+		}
 
 		// 日志
 		api.GET("/logs", s.handleGetLogs)
@@ -676,5 +686,245 @@ AIzaSy in:file
 		"data": gin.H{
 			"content": defaultContent,
 		},
+	})
+}
+
+// handleGetPendingSecurityIssues 获取待审核的安全问题
+func (s *Server) handleGetPendingSecurityIssues(c *gin.Context) {
+	status := c.Query("status")
+	if status == "" {
+		status = "pending" // 默认只显示待审核的
+	}
+	
+	limit := 20
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil {
+			limit = parsed
+		}
+	}
+	
+	offset := 0
+	if o := c.Query("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil {
+			offset = parsed
+		}
+	}
+	
+	issues, total, err := s.storage.GetPendingSecurityIssues(c.Request.Context(), status, limit, offset)
+	if err != nil {
+		logger.Errorf("Failed to get pending security issues: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    2002,
+			"message": "Failed to get pending security issues",
+		})
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": gin.H{
+			"issues": issues,
+			"total":  total,
+		},
+	})
+}
+
+// handleReviewSecurityIssue 审核安全问题
+func (s *Server) handleReviewSecurityIssue(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    1001,
+			"message": "Invalid issue ID",
+		})
+		return
+	}
+	
+	var req struct {
+		Action     string `json:"action"`     // approve, reject
+		ReviewedBy string `json:"reviewed_by"`
+		ReviewNote string `json:"review_note"`
+	}
+	
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    1001,
+			"message": "Invalid request body",
+		})
+		return
+	}
+	
+	// 验证action参数
+	if req.Action != "approve" && req.Action != "reject" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    1001,
+			"message": "Action must be 'approve' or 'reject'",
+		})
+		return
+	}
+	
+	// 更新审核状态
+	status := "approved"
+	if req.Action == "reject" {
+		status = "rejected"
+	}
+	
+	err = s.storage.UpdateSecurityIssueStatus(c.Request.Context(), id, status, req.ReviewedBy, req.ReviewNote)
+	if err != nil {
+		logger.Errorf("Failed to update security issue status: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    2002,
+			"message": "Failed to update review status",
+		})
+		return
+	}
+	
+	logger.Infof("Security issue %d %s by %s", id, status, req.ReviewedBy)
+	
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "Review submitted successfully",
+	})
+}
+
+// handleCreateSecurityIssue 创建GitHub安全问题issue
+func (s *Server) handleCreateSecurityIssue(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    1001,
+			"message": "Invalid issue ID",
+		})
+		return
+	}
+	
+	// 获取安全问题详情
+	issue, err := s.storage.GetSecurityIssueByID(c.Request.Context(), id)
+	if err != nil {
+		logger.Errorf("Failed to get security issue: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    2002,
+			"message": "Failed to get security issue details",
+		})
+		return
+	}
+	
+	if issue == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"code":    1002,
+			"message": "Security issue not found",
+		})
+		return
+	}
+	
+	// 检查是否已批准
+	if issue.Status != "approved" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    1003,
+			"message": "Issue must be approved before creating GitHub issue",
+		})
+		return
+	}
+	
+	// 检查是否已创建
+	if issue.IssueURL != "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    1003,
+			"message": "GitHub issue already created",
+		})
+		return
+	}
+	
+	// 创建GitHub issue
+	keyInfo := github.LeakedKeyInfo{
+		KeyType:      issue.KeyType,
+		Provider:     issue.Provider,
+		Repository:   issue.RepoName,
+		FilePath:     issue.FilePath,
+		URL:          issue.FileURL,
+		KeyPreview:   issue.KeyPreview,
+		DiscoveredAt: issue.CreatedAt,
+		Severity:     issue.Severity,
+	}
+	
+	// 使用scanner的安全通知器创建issue
+	if s.scanner != nil {
+		securityNotifier := s.scanner.GetSecurityNotifier()
+		if securityNotifier != nil {
+			err = securityNotifier.CreateSecurityIssue(c.Request.Context(), keyInfo)
+			if err != nil {
+				logger.Errorf("Failed to create GitHub issue: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"code":    2003,
+					"message": "Failed to create GitHub issue: " + err.Error(),
+				})
+				return
+			}
+			
+			// 更新issue URL（这里简化处理，实际应该从GitHub API获取issue URL）
+			issueURL := fmt.Sprintf("https://github.com/%s/issues", issue.RepoName)
+			err = s.storage.UpdateSecurityIssueURL(c.Request.Context(), id, issueURL)
+			if err != nil {
+				logger.Errorf("Failed to update issue URL: %v", err)
+			}
+			
+			logger.Infof("✅ Created GitHub issue for security issue %d in %s", id, issue.RepoName)
+			
+			c.JSON(http.StatusOK, gin.H{
+				"code":    0,
+				"message": "GitHub issue created successfully",
+				"data": gin.H{
+					"issue_url": issueURL,
+				},
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code":    2001,
+				"message": "Security notifier not initialized",
+			})
+		}
+	} else {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    2001,
+			"message": "Scanner not available",
+		})
+	}
+}
+
+// handleGetSecurityIssue 获取安全问题详情
+func (s *Server) handleGetSecurityIssue(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    1001,
+			"message": "Invalid issue ID",
+		})
+		return
+	}
+	
+	issue, err := s.storage.GetSecurityIssueByID(c.Request.Context(), id)
+	if err != nil {
+		logger.Errorf("Failed to get security issue: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    2002,
+			"message": "Failed to get security issue details",
+		})
+		return
+	}
+	
+	if issue == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"code":    1002,
+			"message": "Security issue not found",
+		})
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": issue,
 	})
 }

@@ -137,6 +137,28 @@ const i18n = {
         'load_current_settings': '加载当前设置',
         'reset_to_defaults': '重置为默认值',
 
+        // Security Review
+        'security_review': '安全审核',
+        'pending_review': '待审核',
+        'human_review_notice': '人工审核说明',
+        'human_review_desc': '为遵守GitHub反机器人政策，所有issue创建需人工审核确认。请仔细检查每个发现的真实性。',
+        'pending': '待审核',
+        'approved': '已批准', 
+        'rejected': '已拒绝',
+        'created': '已创建',
+        'all_status': '全部状态',
+        'critical': '关键',
+        'high': '高级',
+        'medium': '中级',
+        'file_path': '文件路径',
+        'loading_issues': '加载审核项目中...',
+        'review_security_issue': '审核安全问题',
+        'approve': '批准',
+        'reject': '拒绝',
+        'review_note': '审核备注',
+        'reviewer': '审核人员',
+        'submit_review': '提交审核',
+
         // Logs
         'system_logs': '系统日志',
         'clear': '清空',

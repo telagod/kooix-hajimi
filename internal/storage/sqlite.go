@@ -128,6 +128,28 @@ func (s *SQLiteStorage) migrate() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(queue_type, key_value)
 		)`,
+		
+		// 待审核安全问题表
+		`CREATE TABLE IF NOT EXISTS pending_security_issues (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			key_id INTEGER NOT NULL,
+			provider TEXT NOT NULL,
+			key_type TEXT NOT NULL,
+			key_preview TEXT NOT NULL,
+			repo_name TEXT NOT NULL,
+			file_path TEXT NOT NULL,
+			file_url TEXT NOT NULL,
+			sha TEXT NOT NULL,
+			severity TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			reviewed_by TEXT DEFAULT '',
+			review_note TEXT DEFAULT '',
+			issue_url TEXT DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			reviewed_at DATETIME,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY(key_id) REFERENCES valid_keys(id) ON DELETE CASCADE
+		)`,
 	}
 
 	// 创建索引
@@ -141,6 +163,10 @@ func (s *SQLiteStorage) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_rate_limited_keys_provider ON rate_limited_keys(provider)`,
 		`CREATE INDEX IF NOT EXISTS idx_scanned_shas_created_at ON scanned_shas(created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_sync_queues_type ON sync_queues(queue_type)`,
+		`CREATE INDEX IF NOT EXISTS idx_pending_security_issues_status ON pending_security_issues(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_pending_security_issues_severity ON pending_security_issues(severity)`,
+		`CREATE INDEX IF NOT EXISTS idx_pending_security_issues_created_at ON pending_security_issues(created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_pending_security_issues_key_id ON pending_security_issues(key_id)`,
 	}
 
 	// 执行迁移
@@ -634,4 +660,105 @@ func (s *SQLiteStorage) UpdateKeyTier(ctx context.Context, keyID int64, tier str
 		WHERE id = ?
 	`, tier, confidence, keyID)
 	return err
+}
+
+// SavePendingSecurityIssue 保存待审核的安全问题
+func (s *SQLiteStorage) SavePendingSecurityIssue(ctx context.Context, issue *PendingSecurityIssue) error {
+	query := `
+		INSERT INTO pending_security_issues 
+		(key_id, provider, key_type, key_preview, repo_name, file_path, file_url, sha, severity, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	
+	result, err := s.db.ExecContext(ctx, query, 
+		issue.KeyID, issue.Provider, issue.KeyType, issue.KeyPreview,
+		issue.RepoName, issue.FilePath, issue.FileURL, issue.SHA, 
+		issue.Severity, issue.Status)
+	
+	if err != nil {
+		return err
+	}
+	
+	// 获取插入的ID
+	id, err := result.LastInsertId()
+	if err != nil {
+		return err
+	}
+	issue.ID = id
+	
+	return nil
+}
+
+// GetPendingSecurityIssues 获取待审核的安全问题列表
+func (s *SQLiteStorage) GetPendingSecurityIssues(ctx context.Context, status string, limit, offset int) ([]*PendingSecurityIssue, int64, error) {
+	var whereClause string
+	var args []interface{}
+	
+	if status != "" {
+		whereClause = "WHERE status = ?"
+		args = append(args, status)
+	}
+	
+	// 查询总数
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM pending_security_issues %s", whereClause)
+	var total int64
+	err := s.db.GetContext(ctx, &total, countQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	
+	// 查询数据
+	dataQuery := fmt.Sprintf(`
+		SELECT id, key_id, provider, key_type, key_preview, repo_name, file_path, file_url, sha, 
+		       severity, status, reviewed_by, review_note, issue_url, created_at, reviewed_at, updated_at
+		FROM pending_security_issues %s
+		ORDER BY created_at DESC
+		LIMIT ? OFFSET ?
+	`, whereClause)
+	
+	args = append(args, limit, offset)
+	
+	var issues []*PendingSecurityIssue
+	err = s.db.SelectContext(ctx, &issues, dataQuery, args...)
+	
+	return issues, total, err
+}
+
+// UpdateSecurityIssueStatus 更新安全问题状态
+func (s *SQLiteStorage) UpdateSecurityIssueStatus(ctx context.Context, issueID int64, status, reviewedBy, reviewNote string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE pending_security_issues 
+		SET status = ?, reviewed_by = ?, review_note = ?, reviewed_at = datetime('now'), updated_at = datetime('now')
+		WHERE id = ?
+	`, status, reviewedBy, reviewNote, issueID)
+	
+	return err
+}
+
+// UpdateSecurityIssueURL 更新安全问题的GitHub issue URL
+func (s *SQLiteStorage) UpdateSecurityIssueURL(ctx context.Context, issueID int64, issueURL string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE pending_security_issues 
+		SET issue_url = ?, status = 'created', updated_at = datetime('now')
+		WHERE id = ?
+	`, issueURL, issueID)
+	
+	return err
+}
+
+// GetSecurityIssueByID 根据ID获取安全问题
+func (s *SQLiteStorage) GetSecurityIssueByID(ctx context.Context, issueID int64) (*PendingSecurityIssue, error) {
+	var issue PendingSecurityIssue
+	err := s.db.GetContext(ctx, &issue, `
+		SELECT id, key_id, provider, key_type, key_preview, repo_name, file_path, file_url, sha, 
+		       severity, status, reviewed_by, review_note, issue_url, created_at, reviewed_at, updated_at
+		FROM pending_security_issues 
+		WHERE id = ?
+	`, issueID)
+	
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	
+	return &issue, err
 }

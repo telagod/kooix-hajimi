@@ -38,6 +38,27 @@ type RateLimitedKey struct {
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 }
 
+// PendingSecurityIssue 待审核的安全问题
+type PendingSecurityIssue struct {
+	ID           int64     `json:"id" db:"id"`
+	KeyID        int64     `json:"key_id" db:"key_id"`           // 关联的有效密钥ID
+	Provider     string    `json:"provider" db:"provider"`       // gemini, openai, claude
+	KeyType      string    `json:"key_type" db:"key_type"`       // api_key, project_key
+	KeyPreview   string    `json:"key_preview" db:"key_preview"` // 密钥预览（前10位）
+	RepoName     string    `json:"repo_name" db:"repo_name"`
+	FilePath     string    `json:"file_path" db:"file_path"`
+	FileURL      string    `json:"file_url" db:"file_url"`
+	SHA          string    `json:"sha" db:"sha"`
+	Severity     string    `json:"severity" db:"severity"`       // critical, high, medium
+	Status       string    `json:"status" db:"status"`           // pending, approved, rejected, created
+	ReviewedBy   string    `json:"reviewed_by" db:"reviewed_by"` // 审核人员
+	ReviewNote   string    `json:"review_note" db:"review_note"` // 审核备注
+	IssueURL     string    `json:"issue_url" db:"issue_url"`     // 创建的issue URL
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	ReviewedAt   time.Time `json:"reviewed_at" db:"reviewed_at"`
+	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
+}
+
 // ScanProgress 扫描进度
 type ScanProgress struct {
 	ID                  int64     `json:"id" db:"id"`
@@ -128,6 +149,13 @@ type Storage interface {
 	GetGPTLoadQueue(ctx context.Context) ([]string, error)
 	ClearBalancerQueue(ctx context.Context) error
 	ClearGPTLoadQueue(ctx context.Context) error
+	
+	// 安全审核管理
+	SavePendingSecurityIssue(ctx context.Context, issue *PendingSecurityIssue) error
+	GetPendingSecurityIssues(ctx context.Context, status string, limit, offset int) ([]*PendingSecurityIssue, int64, error)
+	UpdateSecurityIssueStatus(ctx context.Context, issueID int64, status, reviewedBy, reviewNote string) error
+	UpdateSecurityIssueURL(ctx context.Context, issueID int64, issueURL string) error
+	GetSecurityIssueByID(ctx context.Context, issueID int64) (*PendingSecurityIssue, error)
 	
 	// 健康检查和清理
 	HealthCheck(ctx context.Context) error

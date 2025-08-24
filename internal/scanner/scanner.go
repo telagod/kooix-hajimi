@@ -349,8 +349,8 @@ func (s *Scanner) processSearchItem(ctx context.Context, item *github.SearchItem
 				stats.ValidKeys += len(validKeys)
 			})
 			
-			// 发送安全通知
-			s.sendSecurityNotifications(ctx, validKeys, *item)
+			// 创建待审核的安全通知记录
+			s.createPendingSecurityIssues(ctx, validKeys, *item)
 		}
 	}
 
@@ -777,6 +777,59 @@ func (s *Scanner) GetTokenStates() map[string]interface{} {
 	}
 	
 	return result
+}
+
+// GetSecurityNotifier 获取安全通知器
+func (s *Scanner) GetSecurityNotifier() *github.SecurityNotifier {
+	return s.securityNotifier
+}
+
+// createPendingSecurityIssues 创建待审核的安全问题记录
+func (s *Scanner) createPendingSecurityIssues(ctx context.Context, validKeys []*storage.ValidKey, item github.SearchItem) {
+	if !s.config.Scanner.SecurityNotifications.Enabled {
+		return
+	}
+
+	for _, validKey := range validKeys {
+		// 确定严重级别
+		severity := s.determineSeverityByProvider(validKey.Provider)
+		
+		// 检查是否需要创建审核记录
+		if !s.shouldNotify(severity) {
+			continue
+		}
+
+		// 创建待审核安全问题记录
+		pendingIssue := &storage.PendingSecurityIssue{
+			KeyID:      validKey.ID,
+			Provider:   validKey.Provider,
+			KeyType:    validKey.KeyType,
+			KeyPreview: validKey.Key[:min(10, len(validKey.Key))],
+			RepoName:   item.Repository.FullName,
+			FilePath:   item.Path,
+			FileURL:    item.HTMLURL,
+			SHA:        item.SHA,
+			Severity:   severity,
+			Status:     "pending",
+			CreatedAt:  time.Now(),
+		}
+
+		// 保存到数据库
+		if err := s.storage.SavePendingSecurityIssue(ctx, pendingIssue); err != nil {
+			logger.Errorf("Failed to save pending security issue: %v", err)
+		} else {
+			logger.Infof("🔍 Created pending security review for %s key in %s/%s (ID: %d)", 
+				validKey.Provider, item.Repository.FullName, item.Path, pendingIssue.ID)
+		}
+	}
+}
+
+// min 返回较小值
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // sendSecurityNotifications 发送安全通知

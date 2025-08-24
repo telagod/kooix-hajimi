@@ -8,6 +8,8 @@ class HajimiKingApp {
         this.currentKeyType = 'valid';
         this.currentPage = 1;
         this.pageSize = 20;
+        this.currentSecurityPage = 1;
+        this.securityPageSize = 20;
         
         this.init();
     }
@@ -381,6 +383,9 @@ class HajimiKingApp {
         switch (tabName) {
             case 'keys':
                 this.loadKeys();
+                break;
+            case 'security':
+                this.loadSecurityIssues();
                 break;
             case 'settings':
                 this.loadSettings();
@@ -826,6 +831,284 @@ class HajimiKingApp {
         
         this.showNotification('Query rules exported successfully', 'success');
     }
+
+    // 安全审核相关方法
+    async loadSecurityIssues(page = 1) {
+        try {
+            const status = document.getElementById('security-status-filter')?.value || 'pending';
+            const severity = document.getElementById('security-severity-filter')?.value || '';
+            
+            const params = new URLSearchParams({
+                status: status,
+                limit: this.securityPageSize,
+                offset: (page - 1) * this.securityPageSize
+            });
+            
+            if (severity) {
+                params.append('severity', severity);
+            }
+
+            const response = await fetch(`/api/security/pending?${params}`);
+            const data = await response.json();
+
+            if (data.code === 0) {
+                this.renderSecurityIssuesTable(data.data.issues, data.data.total);
+                this.renderSecurityPagination(data.data.total, page);
+                this.currentSecurityPage = page;
+                
+                // 更新待审核计数
+                const pendingCount = status === 'pending' ? data.data.total : 
+                    await this.getPendingCount();
+                document.getElementById('pending-count').textContent = pendingCount;
+            } else {
+                this.showNotification('Failed to load security issues: ' + data.message, 'error');
+            }
+        } catch (error) {
+            console.error('Failed to load security issues:', error);
+            this.showNotification('Failed to load security issues', 'error');
+        }
+    }
+
+    async getPendingCount() {
+        try {
+            const response = await fetch('/api/security/pending?status=pending&limit=1');
+            const data = await response.json();
+            return data.code === 0 ? data.data.total : 0;
+        } catch (error) {
+            return 0;
+        }
+    }
+
+    renderSecurityIssuesTable(issues, total) {
+        const tableBody = document.getElementById('security-issues-body');
+
+        if (!issues || issues.length === 0) {
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="text-center text-muted">
+                        <i class="fas fa-shield-alt"></i>
+                        <div class="mt-2">暂无安全审核项目</div>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tableBody.innerHTML = issues.map(issue => {
+            const severityBadge = this.getSeverityBadge(issue.severity);
+            const statusBadge = this.getStatusBadge(issue.status);
+            const shortRepo = issue.repo_name.length > 25 
+                ? issue.repo_name.substring(0, 25) + '...' 
+                : issue.repo_name;
+            const shortFile = issue.file_path.length > 35 
+                ? '...' + issue.file_path.substring(issue.file_path.length - 35)
+                : issue.file_path;
+            
+            const reviewButtons = this.getReviewButtons(issue);
+            
+            return `
+                <tr>
+                    <td>${severityBadge}</td>
+                    <td><span class="badge bg-primary">${issue.provider}</span></td>
+                    <td>
+                        <a href="https://github.com/${issue.repo_name}" target="_blank" class="text-decoration-none">
+                            ${shortRepo}
+                        </a>
+                    </td>
+                    <td>
+                        <a href="${issue.file_url}" target="_blank" class="text-decoration-none">
+                            <code>${shortFile}</code>
+                        </a>
+                    </td>
+                    <td>${new Date(issue.created_at).toLocaleString()}</td>
+                    <td>${statusBadge}</td>
+                    <td>${reviewButtons}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    getSeverityBadge(severity) {
+        const badges = {
+            'critical': '<span class="badge bg-danger">关键</span>',
+            'high': '<span class="badge bg-warning">高级</span>',
+            'medium': '<span class="badge bg-info">中级</span>'
+        };
+        return badges[severity] || `<span class="badge bg-secondary">${severity}</span>`;
+    }
+
+    getStatusBadge(status) {
+        const badges = {
+            'pending': '<span class="badge bg-warning">待审核</span>',
+            'approved': '<span class="badge bg-success">已批准</span>',
+            'rejected': '<span class="badge bg-danger">已拒绝</span>',
+            'created': '<span class="badge bg-primary">已创建</span>'
+        };
+        return badges[status] || `<span class="badge bg-secondary">${status}</span>`;
+    }
+
+    getReviewButtons(issue) {
+        if (issue.status === 'pending') {
+            return `
+                <div class="btn-group" role="group">
+                    <button class="btn btn-sm btn-outline-success" onclick="showReviewModal(${issue.id}, 'approve')" 
+                            title="批准">
+                        <i class="fas fa-check"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="showReviewModal(${issue.id}, 'reject')"
+                            title="拒绝">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `;
+        } else if (issue.status === 'approved') {
+            if (issue.issue_url) {
+                return `
+                    <a href="${issue.issue_url}" target="_blank" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-external-link-alt"></i> 查看Issue
+                    </a>
+                `;
+            } else {
+                return `
+                    <button class="btn btn-sm btn-success" onclick="createGitHubIssue(${issue.id})"
+                            title="创建GitHub Issue">
+                        <i class="fas fa-plus"></i> 创建Issue
+                    </button>
+                `;
+            }
+        } else {
+            return `
+                <span class="text-muted">
+                    <i class="fas fa-${issue.status === 'rejected' ? 'ban' : 'check'}"></i>
+                    ${issue.reviewed_by || '系统'}
+                </span>
+            `;
+        }
+    }
+
+    renderSecurityPagination(total, currentPage) {
+        const totalPages = Math.ceil(total / this.securityPageSize);
+        const pagination = document.getElementById('security-pagination');
+
+        if (totalPages <= 1) {
+            pagination.innerHTML = '';
+            return;
+        }
+
+        let html = '';
+        
+        // Previous button
+        html += `
+            <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+                <a class="page-link" href="#" onclick="app.loadSecurityIssues(${currentPage - 1})">上一页</a>
+            </li>
+        `;
+
+        // Page numbers
+        const startPage = Math.max(1, currentPage - 2);
+        const endPage = Math.min(totalPages, currentPage + 2);
+
+        for (let i = startPage; i <= endPage; i++) {
+            html += `
+                <li class="page-item ${i === currentPage ? 'active' : ''}">
+                    <a class="page-link" href="#" onclick="app.loadSecurityIssues(${i})">${i}</a>
+                </li>
+            `;
+        }
+
+        // Next button
+        html += `
+            <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
+                <a class="page-link" href="#" onclick="app.loadSecurityIssues(${currentPage + 1})">下一页</a>
+            </li>
+        `;
+
+        pagination.innerHTML = html;
+    }
+
+    async reviewSecurityIssue(id, action) {
+        const reviewedBy = prompt('请输入审核人员姓名:');
+        if (!reviewedBy) {
+            return;
+        }
+
+        const reviewNote = action === 'approve' ? 
+            prompt('批准理由 (可选):') || '审核通过' :
+            prompt('拒绝理由 (必填):');
+        
+        if (action === 'reject' && !reviewNote) {
+            this.showNotification('拒绝时必须填写理由', 'warning');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/security/review/${id}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    action: action,
+                    reviewed_by: reviewedBy,
+                    review_note: reviewNote || ''
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.code === 0) {
+                this.showNotification(
+                    action === 'approve' ? '已批准该安全问题' : '已拒绝该安全问题', 
+                    'success'
+                );
+                this.loadSecurityIssues(this.currentSecurityPage);
+            } else {
+                this.showNotification('审核失败: ' + data.message, 'error');
+            }
+        } catch (error) {
+            console.error('Review failed:', error);
+            this.showNotification('审核失败', 'error');
+        }
+    }
+
+    async createGitHubIssue(id) {
+        if (!confirm('确定要创建GitHub Issue吗？这将在目标仓库中创建一个公开的安全问题报告。')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/security/create-issue/${id}`, {
+                method: 'POST'
+            });
+
+            const data = await response.json();
+            
+            if (data.code === 0) {
+                this.showNotification('GitHub Issue创建成功!', 'success');
+                this.loadSecurityIssues(this.currentSecurityPage);
+            } else {
+                this.showNotification('Issue创建失败: ' + data.message, 'error');
+            }
+        } catch (error) {
+            console.error('Create issue failed:', error);
+            this.showNotification('Issue创建失败', 'error');
+        }
+    }
+
+    exportQueries() {
+        const content = document.getElementById('query-editor').value;
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'queries_export.txt';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        this.showNotification('Query rules exported successfully', 'success');
+    }
 }
 
 // Initialize app when DOM is loaded
@@ -880,4 +1163,99 @@ function saveAllSettings() {
 
 function resetToDefaults() {
     app.resetToDefaults();
+}
+
+// Security Review functions
+async function loadSecurityIssues() {
+    return app.loadSecurityIssues();
+}
+
+async function refreshSecurityIssues() {
+    return app.loadSecurityIssues();
+}
+
+function filterSecurityIssues() {
+    app.currentSecurityPage = 1;
+    app.loadSecurityIssues();
+}
+
+async function reviewSecurityIssue(id, action) {
+    return app.reviewSecurityIssue(id, action);
+}
+
+async function createGitHubIssue(id) {
+    return app.createGitHubIssue(id);
+}
+
+// Modal functions for security review
+let currentReviewId = null;
+let currentReviewAction = null;
+
+function showReviewModal(id, action) {
+    currentReviewId = id;
+    currentReviewAction = action;
+    
+    const modal = new bootstrap.Modal(document.getElementById('reviewModal'));
+    const title = action === 'approve' ? '批准安全问题' : '拒绝安全问题';
+    document.getElementById('reviewModalTitle').textContent = title;
+    
+    // 显示/隐藏按钮
+    document.getElementById('approve-btn').style.display = action === 'approve' ? 'inline-block' : 'none';
+    document.getElementById('reject-btn').style.display = action === 'reject' ? 'inline-block' : 'none';
+    
+    // 清空表单
+    document.getElementById('review-note').value = '';
+    document.getElementById('reviewed-by').value = '';
+    
+    modal.show();
+}
+
+async function submitReview(action) {
+    const reviewedBy = document.getElementById('reviewed-by').value.trim();
+    const reviewNote = document.getElementById('review-note').value.trim();
+    
+    if (!reviewedBy) {
+        app.showNotification('请输入审核人员姓名', 'warning');
+        return;
+    }
+    
+    if (action === 'reject' && !reviewNote) {
+        app.showNotification('拒绝时必须填写审核理由', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/security/review/${currentReviewId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                action: action,
+                reviewed_by: reviewedBy,
+                review_note: reviewNote || ''
+            })
+        });
+
+        const data = await response.json();
+        
+        if (data.code === 0) {
+            app.showNotification(
+                action === 'approve' ? '已批准该安全问题' : '已拒绝该安全问题', 
+                'success'
+            );
+            
+            // 关闭模态框
+            const modal = bootstrap.Modal.getInstance(document.getElementById('reviewModal'));
+            modal.hide();
+            
+            // 刷新列表
+            app.loadSecurityIssues(app.currentSecurityPage);
+        } else {
+            app.showNotification('审核失败: ' + data.message, 'error');
+        }
+    } catch (error) {
+        console.error('Review failed:', error);
+        app.showNotification('审核失败', 'error');
+    }
 }

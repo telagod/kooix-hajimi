@@ -42,6 +42,9 @@
                         <a class="nav-link" href="#queries" data-i18n="queries">查询规则</a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="#security" data-i18n="security_review">安全审核</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="#settings" data-i18n="settings">设置</a>
                     </li>
                     <li class="nav-item">
@@ -430,6 +433,90 @@
             </div>
         </div>
 
+        <!-- Security Review Tab -->
+        <div id="security" class="tab-content" style="display: none;">
+            <div class="row">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title mb-0">
+                                <i class="fas fa-shield-alt"></i> <span data-i18n="security_review">安全审核</span>
+                            </h5>
+                            <div>
+                                <button class="btn btn-outline-primary btn-sm me-2" onclick="refreshSecurityIssues()">
+                                    <i class="fas fa-sync"></i> <span data-i18n="refresh">刷新</span>
+                                </button>
+                                <span class="badge bg-secondary" id="pending-count">0</span>
+                                <small class="text-muted ms-1" data-i18n="pending_review">待审核</small>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <!-- 状态过滤 -->
+                            <div class="row mb-3">
+                                <div class="col-md-3">
+                                    <select class="form-select" id="security-status-filter" onchange="filterSecurityIssues()">
+                                        <option value="pending" data-i18n="pending">待审核</option>
+                                        <option value="approved" data-i18n="approved">已批准</option>
+                                        <option value="rejected" data-i18n="rejected">已拒绝</option>
+                                        <option value="created" data-i18n="created">已创建</option>
+                                        <option value="" data-i18n="all_status">全部状态</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <select class="form-select" id="security-severity-filter" onchange="filterSecurityIssues()">
+                                        <option value="" data-i18n="all_severities">所有级别</option>
+                                        <option value="critical" data-i18n="critical">关键</option>
+                                        <option value="high" data-i18n="high">高级</option>
+                                        <option value="medium" data-i18n="medium">中级</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                                        <i class="fas fa-exclamation-triangle"></i>
+                                        <strong data-i18n="human_review_notice">人工审核说明:</strong>
+                                        <span data-i18n="human_review_desc">为遵守GitHub反机器人政策，所有issue创建需人工审核确认。请仔细检查每个发现的真实性。</span>
+                                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 审核列表 -->
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th data-i18n="severity">严重级别</th>
+                                            <th data-i18n="provider">提供商</th>
+                                            <th data-i18n="repository">仓库</th>
+                                            <th data-i18n="file_path">文件路径</th>
+                                            <th data-i18n="discovered_at">发现时间</th>
+                                            <th data-i18n="status">状态</th>
+                                            <th data-i18n="actions">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="security-issues-body">
+                                        <tr>
+                                            <td colspan="7" class="text-center text-muted">
+                                                <i class="fas fa-spinner fa-spin"></i>
+                                                <span data-i18n="loading_issues">加载审核项目中...</span>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <!-- 分页 -->
+                            <nav>
+                                <ul class="pagination justify-content-center" id="security-pagination">
+                                    <!-- 动态分页 -->
+                                </ul>
+                            </nav>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Settings Tab -->
         <div id="settings" class="tab-content" style="display: none;">
             <div class="row">
@@ -723,6 +810,40 @@
                     <div id="logs-container" class="bg-dark text-light p-3 rounded" style="height: 400px; overflow-y: auto; font-family: monospace;">
                         <div class="text-muted">Loading logs...</div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Security Review Modal -->
+    <div class="modal fade" id="reviewModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="reviewModalTitle">安全审核</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="review-issue-details"></div>
+                    <div class="mt-3">
+                        <label for="review-note" class="form-label">审核备注:</label>
+                        <textarea class="form-control" id="review-note" rows="3" 
+                                  placeholder="请输入审核理由或备注..."></textarea>
+                    </div>
+                    <div class="mt-3">
+                        <label for="reviewed-by" class="form-label">审核人员:</label>
+                        <input type="text" class="form-control" id="reviewed-by" 
+                               placeholder="请输入审核人员姓名">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-danger" id="reject-btn" onclick="submitReview('reject')">
+                        <i class="fas fa-times"></i> 拒绝
+                    </button>
+                    <button type="button" class="btn btn-success" id="approve-btn" onclick="submitReview('approve')">
+                        <i class="fas fa-check"></i> 批准
+                    </button>
                 </div>
             </div>
         </div>
