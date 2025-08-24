@@ -3,14 +3,11 @@ package github
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"math/rand"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-resty/resty/v2"
