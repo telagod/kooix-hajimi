@@ -564,3 +564,24 @@ func (s *Scanner) updateStats(fn func(*ScanStats)) {
 	defer s.statsMu.Unlock()
 	fn(s.stats)
 }
+
+// GetTokenStates 获取GitHub token状态信息
+func (s *Scanner) GetTokenStates() map[string]interface{} {
+	tokenInfo := s.github.GetRateLimitInfo()
+	result := make(map[string]interface{})
+	
+	for token, state := range tokenInfo {
+		// 只返回非敏感信息
+		maskedToken := token[:8] + "***" + token[len(token)-4:]
+		result[maskedToken] = map[string]interface{}{
+			"remaining":     state.Remaining,
+			"reset_time":    state.ResetTime,
+			"cooldown_end":  state.CooldownEnd,
+			"last_used":     state.LastUsed,
+			"success_rate":  state.SuccessRate,
+			"request_count": state.RequestCount,
+		}
+	}
+	
+	return result
+}

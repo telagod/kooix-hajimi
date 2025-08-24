@@ -192,10 +192,11 @@ func (s *Server) handleStats(c *gin.Context) {
 	}
 
 	// 合并统计信息
+	tokenStates := s.scanner.GetTokenStates()
 	stats := map[string]interface{}{
 		"scan":    scanStats,
 		"storage": storageStats,
-		"tokens":  len(s.scanner.GetTokenStates()), // TODO: 实现获取token状态
+		"tokens":  len(tokenStates),
 	}
 
 	c.JSON(http.StatusOK, Response{
