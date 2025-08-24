@@ -8,7 +8,8 @@
       "Bash(go test:*)",
       "Bash(go build:*)",
       "Bash(git rm:*)",
-      "WebSearch"
+      "WebSearch",
+      "WebFetch(domain:ai.google.dev)"
     ],
     "deny": [],
     "ask": []

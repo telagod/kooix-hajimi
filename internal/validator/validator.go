@@ -158,7 +158,7 @@ func (v *Validator) ValidateBatch(ctx context.Context, keys []KeyInfo) ([]*Valid
 			for keyInfo := range jobCh {
 				result, err := v.validateKeyByProvider(ctx, keyInfo)
 				if err != nil {
-					logger.Errorf("Worker %d validation error for key %s: %v", 
+					logger.Errorf("Worker %d validation error for key %s %s: %v", 
 						workerID, keyInfo.Provider, keyInfo.Key[:10]+"...", err)
 				}
 				resultCh <- result
