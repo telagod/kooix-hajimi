@@ -27,6 +27,11 @@ type Scanner struct {
 	storage    storage.Storage
 	config     config.Config
 	
+	// 新增组件
+	deduplicator      *URLDeduplicator
+	queryManager      *PhasedQueryManager
+	securityNotifier  *github.SecurityNotifier
+	
 	// 状态管理
 	isScanning    bool
 	scanMu        sync.RWMutex
@@ -111,6 +116,12 @@ func New(cfg *config.Config) (*Scanner, error) {
 		validator: keyValidator,
 		storage:   store,
 		config:    *cfg,
+		
+		// 初始化新组件
+		deduplicator:     NewURLDeduplicator(),
+		queryManager:     NewPhasedQueryManager(),
+		securityNotifier: github.NewSecurityNotifier(githubClient, cfg.Scanner.SecurityNotifications.Enabled),
+		
 		stopCh:    make(chan struct{}),
 		stats: &ScanStats{
 			StartTime: time.Now(),
@@ -337,6 +348,9 @@ func (s *Scanner) processSearchItem(ctx context.Context, item *github.SearchItem
 			s.updateStats(func(stats *ScanStats) {
 				stats.ValidKeys += len(validKeys)
 			})
+			
+			// 发送安全通知
+			s.sendSecurityNotifications(ctx, validKeys, *item)
 		}
 	}
 
@@ -525,7 +539,106 @@ func (s *Scanner) StartContinuousScanning(ctx context.Context) error {
 	}
 	defer s.stopScanning()
 
-	// 加载查询列表
+	// 加载分阶段查询
+	if err := s.queryManager.LoadPhasedQueries(s.config.Scanner.QueryFile); err != nil {
+		logger.Errorf("Failed to load phased queries: %v", err)
+		// 回退到传统查询加载
+		return s.startTraditionalScanning(ctx)
+	}
+
+	logger.Infof("Starting phased scanning with %d phases", len(s.queryManager.GetPhases()))
+	return s.startPhasedScanning(ctx)
+}
+
+// startPhasedScanning 开始分阶段扫描
+func (s *Scanner) startPhasedScanning(ctx context.Context) error {
+	phases := s.queryManager.GetPhases()
+	
+	for _, phase := range phases {
+		logger.Infof("Starting %s: %s (%d queries)", phase.Name, phase.Description, len(phase.Queries))
+		
+		for _, query := range phase.Queries {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-s.stopCh:
+				return nil
+			default:
+			}
+			
+			if err := s.scanWithDeduplication(ctx, query, phase.Priority); err != nil {
+				logger.Errorf("Error in phase %s query '%s': %v", phase.Name, query, err)
+				continue
+			}
+		}
+		
+		logger.Infof("Completed %s", phase.Name)
+	}
+	
+	return nil
+}
+
+// scanWithDeduplication 带去重的扫描
+func (s *Scanner) scanWithDeduplication(ctx context.Context, query string, priority int) error {
+	// 检查查询是否已处理
+	processed, err := s.storage.IsQueryProcessed(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to check query status: %w", err)
+	}
+	
+	if processed {
+		logger.Infof("Query already processed, skipping: %s", query)
+		return nil
+	}
+
+	// 搜索GitHub
+	result, err := s.github.SearchCode(ctx, query)
+	if err != nil {
+		return fmt.Errorf("github search failed: %w", err)
+	}
+
+	if len(result.Items) == 0 {
+		logger.Infof("No items found for query: %s", query)
+		return s.storage.AddProcessedQuery(ctx, query)
+	}
+
+	logger.Infof("Found %d items for query: %s", len(result.Items), query)
+	
+	// 智能去重
+	uniqueItems := s.deduplicateItems(result.Items, priority)
+	
+	logger.Infof("After deduplication: %d unique items (filtered %d duplicates)", 
+		len(uniqueItems), len(result.Items)-len(uniqueItems))
+	
+	s.updateStats(func(stats *ScanStats) {
+		stats.TotalFiles += len(result.Items)
+		stats.ProcessedFiles += len(uniqueItems)
+	})
+
+	// 处理去重后的结果
+	if err := s.processSearchItems(ctx, uniqueItems); err != nil {
+		return fmt.Errorf("failed to process search items: %w", err)
+	}
+
+	// 标记查询已处理
+	return s.storage.AddProcessedQuery(ctx, query)
+}
+
+// deduplicateItems 对搜索结果进行去重
+func (s *Scanner) deduplicateItems(items []github.SearchItem, priority int) []github.SearchItem {
+	var uniqueItems []github.SearchItem
+	
+	for _, item := range items {
+		if s.deduplicator.AddURL(item.HTMLURL, item.Repository.FullName, item.Path, priority) {
+			uniqueItems = append(uniqueItems, item)
+		}
+	}
+	
+	return uniqueItems
+}
+
+// startTraditionalScanning 传统扫描方式（向后兼容）
+func (s *Scanner) startTraditionalScanning(ctx context.Context) error {
 	queries, err := s.loadQueries()
 	if err != nil {
 		return fmt.Errorf("failed to load queries: %w", err)
@@ -664,4 +777,88 @@ func (s *Scanner) GetTokenStates() map[string]interface{} {
 	}
 	
 	return result
+}
+
+// sendSecurityNotifications 发送安全通知
+func (s *Scanner) sendSecurityNotifications(ctx context.Context, validKeys []*storage.ValidKey, item github.SearchItem) {
+	if !s.config.Scanner.SecurityNotifications.Enabled {
+		return
+	}
+
+	for _, validKey := range validKeys {
+		// 确定严重级别
+		severity := s.determineSeverityByProvider(validKey.Provider)
+		
+		// 检查是否需要通知
+		if !s.shouldNotify(severity) {
+			continue
+		}
+
+		// 创建泄露密钥信息
+		leakedInfo := github.LeakedKeyInfo{
+			KeyType:     validKey.KeyType,
+			Provider:    validKey.Provider,
+			Repository:  item.Repository.FullName,
+			FilePath:    item.Path,
+			URL:         item.HTMLURL,
+			KeyPreview:  validKey.Key[:10],
+			DiscoveredAt: time.Now(),
+			Severity:    severity,
+		}
+
+		// 记录安全事件
+		logger.Warnf("🚨 SECURITY ALERT: %s API key found in %s/%s", 
+			validKey.Provider, item.Repository.FullName, item.Path)
+
+		// 创建GitHub issue（如果启用）
+		if s.config.Scanner.SecurityNotifications.CreateIssues {
+			if s.config.Scanner.SecurityNotifications.DryRun {
+				logger.Infof("DRY RUN: Would create security issue for %s in %s", 
+					validKey.Provider, item.Repository.FullName)
+			} else {
+				if err := s.securityNotifier.CreateSecurityIssue(ctx, leakedInfo); err != nil {
+					logger.Errorf("Failed to create security issue: %v", err)
+				} else {
+					logger.Infof("✅ Created security issue for %s key in %s", 
+						validKey.Provider, item.Repository.FullName)
+				}
+			}
+		}
+	}
+}
+
+// determineSeverityByProvider 根据Provider确定密钥泄露的严重级别
+func (s *Scanner) determineSeverityByProvider(provider string) string {
+	switch provider {
+	case "openai":
+		return "high"
+	case "gemini", "google":
+		return "high"
+	case "claude", "anthropic":
+		return "high"
+	case "aws":
+		return "critical" // AWS key泄露风险极高
+	case "github":
+		return "critical" // GitHub PAT风险很高
+	case "gitlab":
+		return "high"
+	case "stripe":
+		return "critical" // 支付相关
+	default:
+		return "medium"
+	}
+}
+
+// shouldNotify 判断是否应该发送通知
+func (s *Scanner) shouldNotify(severity string) bool {
+	switch s.config.Scanner.SecurityNotifications.NotifyOnSeverity {
+	case "all":
+		return true
+	case "critical":
+		return severity == "critical"
+	case "high":
+		return severity == "critical" || severity == "high"
+	default:
+		return severity == "critical" || severity == "high"
+	}
 }

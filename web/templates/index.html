@@ -39,6 +39,9 @@
                         <a class="nav-link" href="#scanner">Scanner</a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="#queries">Query Rules</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="#settings">Settings</a>
                     </li>
                     <li class="nav-item">
@@ -325,6 +328,99 @@
             </div>
         </div>
 
+        <!-- Query Rules Tab -->
+        <div id="queries" class="tab-content" style="display: none;">
+            <div class="row">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title mb-0">
+                                <i class="fas fa-search"></i> Query Rules Editor
+                            </h5>
+                            <div>
+                                <button class="btn btn-outline-primary btn-sm me-2" onclick="loadQueryRules()">
+                                    <i class="fas fa-download"></i> Load Current
+                                </button>
+                                <button class="btn btn-success btn-sm me-2" onclick="saveQueryRules()">
+                                    <i class="fas fa-save"></i> Save Rules
+                                </button>
+                                <button class="btn btn-info btn-sm" onclick="validateQueryRules()">
+                                    <i class="fas fa-check"></i> Validate
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="row mb-3">
+                                <div class="col-md-8">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <small class="text-muted">Enhanced 4-Phase Query Strategy</small>
+                                        <span id="query-stats" class="badge bg-secondary">0 queries loaded</span>
+                                    </div>
+                                    <textarea id="query-editor" class="form-control font-monospace" rows="25" 
+                                        placeholder="# Loading query rules...&#10;&#10;Please wait while we load the current query configuration..."></textarea>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="card border-light">
+                                        <div class="card-header bg-light">
+                                            <h6 class="card-title mb-0">Query Phases</h6>
+                                        </div>
+                                        <div class="card-body p-2">
+                                            <div id="phase-breakdown">
+                                                <div class="mb-2">
+                                                    <span class="badge bg-danger me-2">Phase 1</span>
+                                                    <small>Core API Detection</small>
+                                                </div>
+                                                <div class="mb-2">
+                                                    <span class="badge bg-warning me-2">Phase 2</span>
+                                                    <small>Contextual Targeting</small>
+                                                </div>
+                                                <div class="mb-2">
+                                                    <span class="badge bg-info me-2">Phase 3</span>
+                                                    <small>Behavioral Forensics</small>
+                                                </div>
+                                                <div class="mb-2">
+                                                    <span class="badge bg-secondary me-2">Phase 4</span>
+                                                    <small>Global Syntax Matrix</small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="card border-light mt-3">
+                                        <div class="card-header bg-light">
+                                            <h6 class="card-title mb-0">Quick Actions</h6>
+                                        </div>
+                                        <div class="card-body p-2">
+                                            <button class="btn btn-outline-primary btn-sm w-100 mb-2" onclick="addCustomQuery()">
+                                                <i class="fas fa-plus"></i> Add Custom Query
+                                            </button>
+                                            <button class="btn btn-outline-secondary btn-sm w-100 mb-2" onclick="resetToDefault()">
+                                                <i class="fas fa-undo"></i> Reset to Default
+                                            </button>
+                                            <button class="btn btn-outline-info btn-sm w-100" onclick="exportQueries()">
+                                                <i class="fas fa-file-export"></i> Export Rules
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row mt-3">
+                                <div class="col-12">
+                                    <div class="alert alert-info" role="alert">
+                                        <i class="fas fa-info-circle"></i>
+                                        <strong>Query Rules Guide:</strong>
+                                        Use GitHub search syntax. Phases are executed in order (1-4). 
+                                        Higher priority phases run first for better API quota management.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Settings Tab -->
         <div id="settings" class="tab-content" style="display: none;">
             <div class="row">
@@ -416,6 +512,68 @@
                                         Auto Start Scanning
                                     </label>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Security Notifications Settings -->
+            <div class="row mt-3">
+                <div class="col-md-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">
+                                <i class="fas fa-shield-alt"></i> Security Notifications
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="security-notifications-enabled" checked>
+                                            <label class="form-check-label" for="security-notifications-enabled">
+                                                Enable Security Notifications
+                                            </label>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="create-issues" checked>
+                                            <label class="form-check-label" for="create-issues">
+                                                Auto-create GitHub Issues for Leaked Keys
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">Notification Severity Threshold</label>
+                                        <select class="form-select" id="notify-on-severity">
+                                            <option value="all">All Severities</option>
+                                            <option value="high" selected>High & Critical Only</option>
+                                            <option value="critical">Critical Only</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="dry-run">
+                                            <label class="form-check-label" for="dry-run">
+                                                Dry Run Mode (Test without creating actual issues)
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="alert alert-warning" role="alert">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <strong>Security Notice:</strong> When enabled, this tool will automatically create GitHub issues 
+                                in repositories where leaked API keys are discovered. Make sure your GitHub tokens have the necessary permissions.
                             </div>
                         </div>
                     </div>

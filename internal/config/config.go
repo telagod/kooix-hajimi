@@ -38,6 +38,17 @@ type ScannerConfig struct {
 	
 	// 验证器配置
 	Validator ValidatorConfig `mapstructure:"validator"`
+	
+	// 安全通知配置
+	SecurityNotifications SecurityNotificationConfig `mapstructure:"security_notifications"`
+}
+
+// SecurityNotificationConfig 安全通知配置
+type SecurityNotificationConfig struct {
+	Enabled           bool   `mapstructure:"enabled"`
+	CreateIssues      bool   `mapstructure:"create_issues"`
+	NotifyOnSeverity  string `mapstructure:"notify_on_severity"`  // all, critical, high
+	DryRun           bool   `mapstructure:"dry_run"`             // 测试模式，不实际创建issue
 }
 
 // ValidatorConfig 验证器配置
@@ -89,18 +100,8 @@ type WebConfig struct {
 type SyncConfig struct {
 	Enabled bool `mapstructure:"enabled"`
 	
-	// Gemini Balancer
-	GeminiBalancer GeminiBalancerConfig `mapstructure:"gemini_balancer"`
-	
 	// GPT Load Balancer
 	GPTLoadBalancer GPTLoadBalancerConfig `mapstructure:"gpt_load_balancer"`
-}
-
-// GeminiBalancerConfig Gemini Balancer配置
-type GeminiBalancerConfig struct {
-	Enabled bool   `mapstructure:"enabled"`
-	URL     string `mapstructure:"url"`
-	Auth    string `mapstructure:"auth"`
 }
 
 // GPTLoadBalancerConfig GPT Load Balancer配置

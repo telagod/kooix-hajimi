@@ -567,6 +567,23 @@ class HajimiKingApp {
                 document.getElementById('adaptive-enabled').checked = config.rate_limit.adaptive_enabled;
             }
         }
+        
+        // 安全通知配置
+        if (config.scanner && config.scanner.security_notifications) {
+            const secConfig = config.scanner.security_notifications;
+            if (secConfig.enabled !== undefined) {
+                document.getElementById('security-notifications-enabled').checked = secConfig.enabled;
+            }
+            if (secConfig.create_issues !== undefined) {
+                document.getElementById('create-issues').checked = secConfig.create_issues;
+            }
+            if (secConfig.notify_on_severity !== undefined) {
+                document.getElementById('notify-on-severity').value = secConfig.notify_on_severity;
+            }
+            if (secConfig.dry_run !== undefined) {
+                document.getElementById('dry-run').checked = secConfig.dry_run;
+            }
+        }
     }
 
     collectSettingsFromForm() {
@@ -589,6 +606,12 @@ class HajimiKingApp {
                 requests_per_minute: parseInt(document.getElementById('requests-per-minute').value),
                 burst_size: parseInt(document.getElementById('burst-size').value),
                 adaptive_enabled: document.getElementById('adaptive-enabled').checked
+            },
+            security_notifications: {
+                enabled: document.getElementById('security-notifications-enabled').checked,
+                create_issues: document.getElementById('create-issues').checked,
+                notify_on_severity: document.getElementById('notify-on-severity').value,
+                dry_run: document.getElementById('dry-run').checked
             }
         };
 
@@ -647,6 +670,154 @@ class HajimiKingApp {
         document.getElementById('adaptive-enabled').checked = true;
 
         this.showNotification('Settings reset to defaults', 'info');
+    }
+
+    // Query Rules Management
+    async loadQueryRules() {
+        try {
+            const response = await fetch('/api/queries');
+            const data = await response.json();
+            
+            if (data.code === 0) {
+                document.getElementById('query-editor').value = data.data.content;
+                this.updateQueryStats(data.data.content);
+                this.showNotification('Query rules loaded successfully', 'success');
+            } else {
+                this.showNotification('Failed to load query rules: ' + data.message, 'error');
+            }
+        } catch (error) {
+            console.error('Failed to load query rules:', error);
+            this.showNotification('Failed to load query rules', 'error');
+        }
+    }
+
+    async saveQueryRules() {
+        try {
+            const content = document.getElementById('query-editor').value;
+            
+            const response = await fetch('/api/queries', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ content: content })
+            });
+            
+            const data = await response.json();
+            
+            if (data.code === 0) {
+                this.showNotification('Query rules saved successfully', 'success');
+                this.updateQueryStats(content);
+            } else {
+                this.showNotification('Failed to save query rules: ' + data.message, 'error');
+            }
+        } catch (error) {
+            console.error('Failed to save query rules:', error);
+            this.showNotification('Failed to save query rules', 'error');
+        }
+    }
+
+    validateQueryRules() {
+        const content = document.getElementById('query-editor').value;
+        const lines = content.split('\n').filter(line => 
+            line.trim() && !line.trim().startsWith('#')
+        );
+        
+        const issues = [];
+        const phases = { 1: 0, 2: 0, 3: 0, 4: 0 };
+        
+        lines.forEach((line, index) => {
+            const trimmed = line.trim();
+            
+            // Check for basic GitHub search syntax
+            if (!trimmed.includes('"') && !trimmed.includes('language:') && 
+                !trimmed.includes('extension:') && !trimmed.includes('filename:') &&
+                !trimmed.includes('path:') && !trimmed.includes('in:')) {
+                issues.push(`Line ${index + 1}: Query may need quotes or search modifiers`);
+            }
+            
+            // Count queries per phase (based on context)
+            for (let phase = 1; phase <= 4; phase++) {
+                if (content.substring(0, content.indexOf(line)).includes(`[PHASE ${phase}]`)) {
+                    phases[phase]++;
+                    break;
+                }
+            }
+        });
+        
+        let message = `Validation complete:\n`;
+        message += `• Total queries: ${lines.length}\n`;
+        message += `• Phase 1: ${phases[1]} queries\n`;
+        message += `• Phase 2: ${phases[2]} queries\n`;
+        message += `• Phase 3: ${phases[3]} queries\n`;
+        message += `• Phase 4: ${phases[4]} queries\n`;
+        
+        if (issues.length > 0) {
+            message += `\nIssues found:\n${issues.slice(0, 5).join('\n')}`;
+            if (issues.length > 5) {
+                message += `\n... and ${issues.length - 5} more`;
+            }
+        } else {
+            message += '\n✅ No issues found!';
+        }
+        
+        alert(message);
+    }
+
+    updateQueryStats(content) {
+        const lines = content.split('\n').filter(line => 
+            line.trim() && !line.trim().startsWith('#')
+        );
+        document.getElementById('query-stats').textContent = `${lines.length} queries loaded`;
+    }
+
+    addCustomQuery() {
+        const editor = document.getElementById('query-editor');
+        const newQuery = prompt('Enter your custom GitHub search query:');
+        
+        if (newQuery) {
+            const currentContent = editor.value;
+            const customSection = '\n# --- Custom Queries ---\n' + newQuery + '\n';
+            editor.value = currentContent + customSection;
+            this.updateQueryStats(editor.value);
+        }
+    }
+
+    async resetToDefault() {
+        if (!confirm('Reset to default query rules? This will overwrite all custom changes.')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/queries/default');
+            const data = await response.json();
+            
+            if (data.code === 0) {
+                document.getElementById('query-editor').value = data.data.content;
+                this.updateQueryStats(data.data.content);
+                this.showNotification('Reset to default query rules', 'success');
+            } else {
+                this.showNotification('Failed to reset query rules: ' + data.message, 'error');
+            }
+        } catch (error) {
+            console.error('Failed to reset query rules:', error);
+            this.showNotification('Failed to reset query rules', 'error');
+        }
+    }
+
+    exportQueries() {
+        const content = document.getElementById('query-editor').value;
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'queries_export.txt';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        this.showNotification('Query rules exported successfully', 'success');
     }
 }
 

@@ -31,6 +31,13 @@ scanner:
     worker_count: 5
     timeout: 30s
     enable_tier_detection: false  # 设为true启用层级检测
+  
+  # 安全通知配置
+  security_notifications:
+    enabled: true
+    create_issues: true
+    notify_on_severity: "high"  # all, critical, high
+    dry_run: false              # 设为true进行测试
 
 storage:
   type: "sqlite"  # sqlite, postgres, file
@@ -64,11 +71,6 @@ web:
 
 sync:
   enabled: false
-  
-  gemini_balancer:
-    enabled: false
-    url: ""
-    auth: ""
   
   gpt_load_balancer:
     enabled: false

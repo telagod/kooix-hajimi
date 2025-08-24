@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -165,6 +166,11 @@ func (s *Server) setupRoutes() {
 		// 配置管理
 		api.GET("/config", s.handleGetConfig)
 		api.PUT("/config", s.handleUpdateConfig)
+
+		// 查询规则管理
+		api.GET("/queries", s.handleGetQueries)
+		api.PUT("/queries", s.handleUpdateQueries)
+		api.GET("/queries/default", s.handleGetDefaultQueries)
 
 		// 日志
 		api.GET("/logs", s.handleGetLogs)
@@ -583,4 +589,92 @@ func (s *Server) handleWebSocket(c *gin.Context) {
 			}
 		}
 	}
+}
+
+// handleGetQueries 获取查询规则
+func (s *Server) handleGetQueries(c *gin.Context) {
+	content, err := os.ReadFile(s.appConfig.Scanner.QueryFile)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    -1,
+			"message": fmt.Sprintf("Failed to read query file: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": gin.H{
+			"content": string(content),
+		},
+	})
+}
+
+// handleUpdateQueries 更新查询规则
+func (s *Server) handleUpdateQueries(c *gin.Context) {
+	var req struct {
+		Content string `json:"content"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    -1,
+			"message": fmt.Sprintf("Invalid request: %v", err),
+		})
+		return
+	}
+
+	// 备份原文件
+	backupFile := s.appConfig.Scanner.QueryFile + ".backup"
+	if err := os.Rename(s.appConfig.Scanner.QueryFile, backupFile); err != nil {
+		logger.Warnf("Failed to create backup: %v", err)
+	}
+
+	// 写入新内容
+	if err := os.WriteFile(s.appConfig.Scanner.QueryFile, []byte(req.Content), 0644); err != nil {
+		// 恢复备份
+		if backupErr := os.Rename(backupFile, s.appConfig.Scanner.QueryFile); backupErr != nil {
+			logger.Errorf("Failed to restore backup: %v", backupErr)
+		}
+		
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    -1,
+			"message": fmt.Sprintf("Failed to save query file: %v", err),
+		})
+		return
+	}
+
+	// 删除备份文件
+	os.Remove(backupFile)
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "Query rules updated successfully",
+	})
+}
+
+// handleGetDefaultQueries 获取默认查询规则
+func (s *Server) handleGetDefaultQueries(c *gin.Context) {
+	// 读取默认查询规则（当前文件内容）
+	defaultContent := `# 默认查询规则 - 基础模式
+AIzaSy in:file
+"sk-" in:file
+"sk-ant-api03" in:file
+"hf_" in:file
+"ghp_" in:file fork:false
+"AKIA" in:file fork:false
+
+# 扩展查询
+"AIzaSy" extension:js
+"AIzaSy" extension:py
+"AIzaSy" extension:env
+"sk-" extension:env
+"API_KEY" filename:.env`
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": gin.H{
+			"content": defaultContent,
+		},
+	})
 }
