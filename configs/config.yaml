@@ -1,0 +1,90 @@
+github:
+  tokens: []  # 从环境变量 HAJIMI_GITHUB_TOKENS 读取
+  timeout: 30s
+  max_retries: 5
+  user_agent: "HajimiKing/2.0"
+
+scanner:
+  worker_count: 20
+  batch_size: 100
+  scan_interval: 10s
+  auto_start: false
+  query_file: "queries.txt"
+  date_range_days: 730
+  file_blacklist:
+    - "readme"
+    - "docs"
+    - "doc/"
+    - ".md"
+    - "example"
+    - "sample"
+    - "tutorial"
+    - "test"
+    - "spec"
+    - "demo"
+    - "mock"
+
+storage:
+  type: "sqlite"  # sqlite, postgres, file
+  dsn: "data/hajimi-king.db"
+  data_path: "./data"
+  
+  # 文件存储前缀
+  valid_key_prefix: "keys/keys_valid_"
+  rate_limited_key_prefix: "keys/key_429_"
+  keys_send_prefix: "keys/keys_send_"
+  
+  # 数据库连接池
+  max_open_conns: 10
+  max_idle_conns: 5
+  conn_max_lifetime: 1h
+
+web:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8080
+  static_dir: "web/static"
+  template_dir: "web/templates"
+  
+  # CORS配置
+  cors_enabled: true
+  cors_origins: ["*"]
+  
+  # 认证配置
+  auth_enabled: false
+  auth_token: ""
+
+sync:
+  enabled: false
+  
+  gemini_balancer:
+    enabled: false
+    url: ""
+    auth: ""
+  
+  gpt_load_balancer:
+    enabled: false
+    url: ""
+    auth: ""
+    group_names: []
+
+log:
+  level: "info"
+  format: "text"  # text, json
+  output: "stdout"  # stdout, file, both
+  filename: "hajimi-king.log"
+  max_size: 100
+  max_backups: 3
+  max_age: 28
+  compress: true
+
+rate_limit:
+  enabled: true
+  requests_per_minute: 30
+  burst_size: 10
+  cooldown_duration: 5m
+  
+  # 智能限流
+  adaptive_enabled: true
+  success_threshold: 0.8
+  backoff_multiplier: 1.5

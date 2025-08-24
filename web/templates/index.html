@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.title}}</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Custom CSS -->
+    <link href="/static/css/style.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-crown text-warning"></i>
+                Hajimi King
+            </a>
+            
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#dashboard">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#keys">Keys</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#scanner">Scanner</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#logs">Logs</a>
+                    </li>
+                </ul>
+                
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <span class="navbar-text">
+                            <span id="connection-status" class="badge bg-success">Connected</span>
+                        </span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container-fluid mt-3">
+        <!-- Dashboard Tab -->
+        <div id="dashboard" class="tab-content">
+            <!-- Stats Cards -->
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="card bg-primary text-white">
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col">
+                                    <h5 class="card-title">Valid Keys</h5>
+                                    <h2 id="valid-keys-count">0</h2>
+                                </div>
+                                <div class="col-auto">
+                                    <i class="fas fa-key fa-2x"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-3">
+                    <div class="card bg-warning text-white">
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col">
+                                    <h5 class="card-title">Rate Limited</h5>
+                                    <h2 id="rate-limited-count">0</h2>
+                                </div>
+                                <div class="col-auto">
+                                    <i class="fas fa-clock fa-2x"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-3">
+                    <div class="card bg-info text-white">
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col">
+                                    <h5 class="card-title">Files Scanned</h5>
+                                    <h2 id="files-scanned-count">0</h2>
+                                </div>
+                                <div class="col-auto">
+                                    <i class="fas fa-file fa-2x"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-3">
+                    <div class="card bg-success text-white">
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col">
+                                    <h5 class="card-title">Scan Status</h5>
+                                    <h4 id="scan-status">Idle</h4>
+                                </div>
+                                <div class="col-auto">
+                                    <i class="fas fa-search fa-2x"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Row -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Key Discovery Over Time</h5>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="keys-chart" height="200"></canvas>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Scanner Progress</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label for="progress-bar" class="form-label">
+                                    Queries: <span id="queries-progress">0/0</span>
+                                </label>
+                                <div class="progress">
+                                    <div id="progress-bar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-2">
+                                <strong>Current Query:</strong>
+                                <span id="current-query" class="text-muted">None</span>
+                            </div>
+                            
+                            <div class="row text-center">
+                                <div class="col">
+                                    <small class="text-muted">Processed Files</small>
+                                    <div id="processed-files">0</div>
+                                </div>
+                                <div class="col">
+                                    <small class="text-muted">Error Count</small>
+                                    <div id="error-count">0</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Keys -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Recently Discovered Keys</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Key</th>
+                                    <th>Repository</th>
+                                    <th>File</th>
+                                    <th>Status</th>
+                                    <th>Discovered At</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recent-keys">
+                                <tr>
+                                    <td colspan="5" class="text-center text-muted">No keys found yet</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Keys Tab -->
+        <div id="keys" class="tab-content" style="display: none;">
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title mb-0">API Keys Management</h5>
+                            <div class="btn-group" role="group">
+                                <button type="button" class="btn btn-outline-primary active" onclick="showKeys('valid')">
+                                    Valid Keys
+                                </button>
+                                <button type="button" class="btn btn-outline-warning" onclick="showKeys('rate-limited')">
+                                    Rate Limited Keys
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <!-- Search and Filter -->
+                            <div class="row mb-3">
+                                <div class="col-md-4">
+                                    <input type="text" class="form-control" id="search-repo" placeholder="Search repository...">
+                                </div>
+                                <div class="col-md-3">
+                                    <select class="form-select" id="filter-source">
+                                        <option value="">All Sources</option>
+                                        <option value="github">GitHub</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <button class="btn btn-primary" onclick="searchKeys()">Search</button>
+                                </div>
+                            </div>
+
+                            <!-- Keys Table -->
+                            <div class="table-responsive">
+                                <table class="table table-striped">
+                                    <thead id="keys-table-head">
+                                        <!-- Dynamic headers based on key type -->
+                                    </thead>
+                                    <tbody id="keys-table-body">
+                                        <tr>
+                                            <td colspan="6" class="text-center text-muted">Loading...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <!-- Pagination -->
+                            <nav>
+                                <ul class="pagination justify-content-center" id="keys-pagination">
+                                    <!-- Dynamic pagination -->
+                                </ul>
+                            </nav>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scanner Tab -->
+        <div id="scanner" class="tab-content" style="display: none;">
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Scanner Control</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <button id="start-scan-btn" class="btn btn-success btn-lg" onclick="startScan()">
+                                        <i class="fas fa-play"></i> Start Scan
+                                    </button>
+                                    <button id="stop-scan-btn" class="btn btn-danger btn-lg ms-2" onclick="stopScan()" disabled>
+                                        <i class="fas fa-stop"></i> Stop Scan
+                                    </button>
+                                </div>
+                                <div class="col-md-6 text-end">
+                                    <div class="btn-group" role="group">
+                                        <button type="button" class="btn btn-outline-secondary" onclick="refreshConfig()">
+                                            <i class="fas fa-sync"></i> Refresh
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-info">
+                                <strong>Scanner Status:</strong> <span id="scanner-status-text">Ready</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Configuration</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label class="form-label">Worker Count</label>
+                                <input type="number" class="form-control" id="worker-count" value="20">
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">Scan Interval (seconds)</label>
+                                <input type="number" class="form-control" id="scan-interval" value="10">
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">Date Range (days)</label>
+                                <input type="number" class="form-control" id="date-range" value="730">
+                            </div>
+
+                            <button class="btn btn-primary" onclick="saveConfig()">Save Config</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logs Tab -->
+        <div id="logs" class="tab-content" style="display: none;">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">System Logs</h5>
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-outline-secondary" onclick="refreshLogs()">
+                            <i class="fas fa-sync"></i> Refresh
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="clearLogs()">
+                            <i class="fas fa-trash"></i> Clear
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <select class="form-select d-inline-block w-auto" id="log-level">
+                            <option value="all">All Levels</option>
+                            <option value="debug">Debug</option>
+                            <option value="info">Info</option>
+                            <option value="warn">Warning</option>
+                            <option value="error">Error</option>
+                        </select>
+                    </div>
+                    
+                    <div id="logs-container" class="bg-dark text-light p-3 rounded" style="height: 400px; overflow-y: auto; font-family: monospace;">
+                        <div class="text-muted">Loading logs...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Font Awesome -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
+    
+    <!-- Custom JS -->
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

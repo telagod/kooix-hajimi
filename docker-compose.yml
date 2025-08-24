@@ -1,0 +1,156 @@
+version: '3.8'
+
+services:
+  kooix-hajimi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kooix-hajimi:latest
+    container_name: kooix-hajimi
+    restart: unless-stopped
+    
+    # 端口映射
+    ports:
+      - "8080:8080"
+    
+    # 环境变量
+    environment:
+      # GitHub配置 - 从环境变量读取
+      - HAJIMI_GITHUB_TOKENS=${GITHUB_TOKENS}
+      
+      # 扫描器配置
+      - HAJIMI_SCANNER_WORKER_COUNT=20
+      - HAJIMI_SCANNER_SCAN_INTERVAL=10s
+      - HAJIMI_SCANNER_AUTO_START=false
+      - HAJIMI_SCANNER_DATE_RANGE_DAYS=730
+      
+      # 存储配置
+      - HAJIMI_STORAGE_TYPE=sqlite
+      - HAJIMI_STORAGE_DSN=data/hajimi-king.db
+      - HAJIMI_STORAGE_DATA_PATH=/app/data
+      
+      # Web配置
+      - HAJIMI_WEB_ENABLED=true
+      - HAJIMI_WEB_HOST=0.0.0.0
+      - HAJIMI_WEB_PORT=8080
+      - HAJIMI_WEB_CORS_ENABLED=true
+      
+      # 日志配置
+      - HAJIMI_LOG_LEVEL=info
+      - HAJIMI_LOG_FORMAT=text
+      - HAJIMI_LOG_OUTPUT=stdout
+      
+      # 限流配置
+      - HAJIMI_RATE_LIMIT_ENABLED=true
+      - HAJIMI_RATE_LIMIT_REQUESTS_PER_MINUTE=30
+      - HAJIMI_RATE_LIMIT_ADAPTIVE_ENABLED=true
+      
+      # 同步配置（可选）
+      - HAJIMI_SYNC_ENABLED=false
+      - HAJIMI_SYNC_GEMINI_BALANCER_ENABLED=false
+      - HAJIMI_SYNC_GEMINI_BALANCER_URL=${GEMINI_BALANCER_URL:-}
+      - HAJIMI_SYNC_GEMINI_BALANCER_AUTH=${GEMINI_BALANCER_AUTH:-}
+      - HAJIMI_SYNC_GPT_LOAD_BALANCER_ENABLED=false
+      - HAJIMI_SYNC_GPT_LOAD_BALANCER_URL=${GPT_LOAD_URL:-}
+      - HAJIMI_SYNC_GPT_LOAD_BALANCER_AUTH=${GPT_LOAD_AUTH:-}
+    
+    # 数据卷挂载
+    volumes:
+      - ./data:/app/data
+      - ./configs/config.yaml:/app/configs/config.yaml:ro
+      - ./queries.txt:/app/data/queries.txt:ro
+    
+    # 网络配置
+    networks:
+      - hajimi-network
+    
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
+    
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # 可选：PostgreSQL数据库（如果使用PostgreSQL存储）
+  postgres:
+    image: postgres:15-alpine
+    container_name: kooix-postgres
+    restart: unless-stopped
+    
+    environment:
+      - POSTGRES_DB=kooix_hajimi
+      - POSTGRES_USER=hajimi
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-hajimi_password}
+    
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    
+    networks:
+      - hajimi-network
+    
+    # 仅在使用PostgreSQL时启用
+    profiles:
+      - postgres
+
+  # 可选：Redis缓存（用于分布式部署）
+  redis:
+    image: redis:7-alpine
+    container_name: kooix-redis
+    restart: unless-stopped
+    
+    command: redis-server --appendonly yes
+    
+    volumes:
+      - redis_data:/data
+    
+    networks:
+      - hajimi-network
+    
+    # 仅在使用Redis时启用
+    profiles:
+      - redis
+
+  # 可选：Nginx反向代理
+  nginx:
+    image: nginx:alpine
+    container_name: kooix-nginx
+    restart: unless-stopped
+    
+    ports:
+      - "80:80"
+      - "443:443"
+    
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    
+    depends_on:
+      - kooix-hajimi
+    
+    networks:
+      - hajimi-network
+    
+    # 仅在使用Nginx时启用
+    profiles:
+      - nginx
+
+networks:
+  hajimi-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
