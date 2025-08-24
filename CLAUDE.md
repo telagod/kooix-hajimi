@@ -8,6 +8,18 @@ Kooix Hajimi is a high-performance GitHub API key discovery tool, completely rew
 
 ## Development Commands
 
+### CI/CD
+```bash
+# GitHub Actions workflows configured for:
+# - Automatic Docker builds on push to main/develop
+# - Multi-platform builds (linux/amd64, linux/arm64)  
+# - Publishing to GitHub Container Registry (ghcr.io)
+# - No additional secrets required (uses GITHUB_TOKEN)
+
+# Image available at: ghcr.io/your-username/kooix-hajimi
+```
+
+
 ### Local Development
 ```bash
 # Install dependencies
@@ -15,6 +27,9 @@ go mod tidy
 
 # Build all components
 ./scripts/build.sh all
+
+# Build only binaries
+./scripts/build.sh build
 
 # Run server (development)
 go run cmd/server/main.go
@@ -24,6 +39,9 @@ go run cmd/cli/main.go scan --query "AIzaSy in:file"
 
 # Run with custom config
 go run cmd/server/main.go --config configs/config.yaml
+
+# Check dependencies
+./scripts/build.sh check
 ```
 
 ### Testing
@@ -37,32 +55,48 @@ go test -cover ./...
 # Run specific package tests
 go test -v ./internal/scanner/
 
-# Run integration tests
+# Run integration tests (if available)
 go test -tags=integration ./tests/...
+
+# Use build script for comprehensive testing
+./scripts/build.sh test
 ```
 
 ### Docker Development
 ```bash
-# Build Docker image
-docker build -t hajimi-king-go:latest .
+# Build Docker image locally
+docker build -t kooix-hajimi:latest .
+# OR use build script
+./scripts/build.sh docker
+
+# Pull from GitHub Container Registry
+docker pull ghcr.io/your-username/kooix-hajimi:latest
 
 # Run with docker-compose
 docker-compose up -d
 
 # View logs
-docker-compose logs -f hajimi-king-go
+docker-compose logs -f kooix-hajimi
 
-# Scale horizontally
-docker-compose up -d --scale hajimi-king-go=3
+# Deploy locally with build script
+./scripts/build.sh deploy
+
+# Stop services
+./scripts/build.sh stop
 ```
 
 ### Database Management
 ```bash
 # SQLite development
-# Database auto-created at: data/hajimi-king.db
+# Database auto-created at: data/kooix-hajimi.db
 
 # PostgreSQL setup (production)
 docker-compose --profile postgres up -d
+
+# Multiple deployment profiles available in deployments/
+# - local: Basic SQLite setup
+# - production: PostgreSQL + Nginx
+# - quick: Fast deployment setup
 ```
 
 ## Architecture Overview
@@ -197,6 +231,9 @@ docker-compose --profile postgres up -d
 - [x] Health checks and resource limits
 - [x] Volume mounting for persistent data
 - [x] Network isolation and security
+- [x] GitHub Actions CI/CD for automated builds
+- [x] Multi-platform Docker images (AMD64/ARM64)
+- [x] GitHub Container Registry integration
 
 **Production Features**:
 - [x] Graceful shutdown handling
@@ -291,6 +328,18 @@ docker-compose --profile postgres up -d
 - CORS configuration for web interface
 
 ## Environment Configuration
+
+### GitHub Actions Secrets
+
+For automated Docker builds, configure these repository secrets:
+
+**Required (GitHub Container Registry)**:
+- `GITHUB_TOKEN` - Automatically provided by GitHub Actions
+
+**Workflow Triggers**:
+- Push to `main` or `develop` branches → Build and push to GHCR
+- Tagged releases (`v*`) → Build and push versioned images
+- Pull requests → Build only (no push)
 
 ### Required Environment Variables
 

@@ -94,7 +94,42 @@ go run cmd/server/main.go
 
 ### Docker部署
 
-1. **使用docker-compose**
+#### 使用GitHub Container Registry
+
+**从GitHub Container Registry拉取镜像：**
+```bash
+# 拉取最新镜像
+docker pull ghcr.io/your-username/kooix-hajimi:latest
+
+# 拉取指定版本
+docker pull ghcr.io/your-username/kooix-hajimi:v1.0.0
+```
+
+**运行容器：**
+```bash
+# 设置环境变量
+export GITHUB_TOKENS="your_token_1,your_token_2"
+
+# 单独运行
+docker run -d \
+  --name kooix-hajimi \
+  -p 8080:8080 \
+  -e HAJIMI_GITHUB_TOKENS="$GITHUB_TOKENS" \
+  -v ./data:/app/data \
+  ghcr.io/your-username/kooix-hajimi:latest
+```
+
+#### 使用docker-compose
+
+1. **修改docker-compose.yml镜像地址：**
+```yaml
+services:
+  kooix-hajimi:
+    image: ghcr.io/your-username/kooix-hajimi:latest
+    # ... 其他配置
+```
+
+2. **启动服务：**
 ```bash
 # 设置环境变量
 export GITHUB_TOKENS="your_token_1,your_token_2"
@@ -106,19 +141,14 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
-2. **单独Docker运行**
-```bash
-# 构建镜像
-docker build -t kooix-hajimi .
+#### 自动构建
 
-# 运行容器
-docker run -d \
-  --name hajimi-king \
-  -p 8080:8080 \
-  -e HAJIMI_GITHUB_TOKENS="your_tokens" \
-  -v ./data:/app/data \
-  kooix-hajimi
-```
+**GitHub Actions自动构建：**
+- ✅ 推送到 `main`/`develop` 分支时自动构建
+- ✅ 发布标签时自动构建版本镜像
+- ✅ 支持多平台镜像 (AMD64/ARM64)
+- ✅ 发布到 GitHub Container Registry (ghcr.io)
+- ✅ 无需配置额外secrets，使用GitHub原生支持
 
 ## ⚙️ 配置说明
 
@@ -219,14 +249,17 @@ storage:
 
 ### 生产环境
 ```bash
-# 使用PostgreSQL存储
+# 使用GitHub Container Registry镜像
+docker run -d \
+  --name kooix-hajimi \
+  -p 8080:8080 \
+  -e HAJIMI_GITHUB_TOKENS="your_tokens" \
+  -e HAJIMI_STORAGE_TYPE="postgres" \
+  -e HAJIMI_STORAGE_DSN="postgres://..." \
+  ghcr.io/your-username/kooix-hajimi:latest
+
+# 或使用PostgreSQL compose配置
 docker-compose --profile postgres up -d
-
-# 使用Nginx反向代理
-docker-compose --profile nginx up -d
-
-# 配置SSL证书
-# 修改nginx.conf添加SSL配置
 ```
 
 ### 高可用部署
