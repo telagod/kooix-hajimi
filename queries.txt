@@ -1,0 +1,80 @@
+# 多提供商API密钥查询优化规则
+
+# Gemini API密钥查询
+AIzaSy in:file
+AIzaSy extension:js
+AIzaSy extension:py
+AIzaSy extension:env
+AIzaSy extension:yaml
+AIzaSy extension:yml
+AIzaSy extension:json
+AIzaSy extension:ts
+AIzaSy extension:jsx
+AIzaSy extension:tsx
+"AIzaSy" language:javascript
+"AIzaSy" language:python
+"AIzaSy" language:typescript
+
+# OpenAI API密钥查询
+sk- in:file
+"sk-" extension:js
+"sk-" extension:py
+"sk-" extension:env
+"sk-" extension:yaml
+"sk-" extension:yml
+"sk-" extension:json
+"sk-" extension:ts
+"sk-" extension:jsx
+"sk-" extension:tsx
+"sk-" language:javascript
+"sk-" language:python
+"sk-" language:typescript
+sk-proj in:file
+"sk-proj-" extension:js
+"sk-proj-" extension:py
+"sk-proj-" extension:env
+
+# Claude API密钥查询
+sk-ant-api03 in:file
+"sk-ant-api03" extension:js
+"sk-ant-api03" extension:py
+"sk-ant-api03" extension:env
+"sk-ant-api03" extension:yaml
+"sk-ant-api03" extension:yml
+"sk-ant-api03" extension:json
+"sk-ant-api03" extension:ts
+"sk-ant-api03" language:javascript
+"sk-ant-api03" language:python
+
+# 特定场景查询
+OPENAI_API_KEY in:file
+ANTHROPIC_API_KEY in:file
+GOOGLE_API_KEY in:file
+GEMINI_API_KEY in:file
+API_KEY filename:.env
+SECRET_KEY filename:.env
+openai.api_key in:file
+anthropic.api_key in:file
+
+# 配置文件专项查询
+extension:env "sk-"
+extension:env "AIzaSy"
+extension:env "sk-ant-api03"
+filename:.env "API_KEY"
+filename:config.yaml "api_key"
+filename:config.yml "api_key"
+filename:.envrc "API_KEY"
+
+# 代码文件专项查询
+filename:main.py "sk-"
+filename:main.js "sk-"
+filename:index.js "AIzaSy"
+filename:config.py "api_key"
+filename:settings.py "API_KEY"
+filename:constants.js "sk-"
+
+# 避免无效仓库的查询优化
+-user:placeholder -user:example -user:template -user:demo
+-repo:template -repo:example -repo:demo -repo:test
+pushed:>2022-01-01
+size:>1000

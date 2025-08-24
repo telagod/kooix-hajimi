@@ -9,6 +9,8 @@ import (
 type ValidKey struct {
 	ID          int64     `json:"id" db:"id"`
 	Key         string    `json:"key" db:"key_value"`
+	Provider    string    `json:"provider" db:"provider"`    // gemini, openai, claude
+	KeyType     string    `json:"key_type" db:"key_type"`    // api_key, project_key
 	Source      string    `json:"source" db:"source"`
 	RepoName    string    `json:"repo_name" db:"repo_name"`
 	FilePath    string    `json:"file_path" db:"file_path"`
@@ -23,12 +25,14 @@ type ValidKey struct {
 type RateLimitedKey struct {
 	ID          int64     `json:"id" db:"id"`
 	Key         string    `json:"key" db:"key_value"`
+	Provider    string    `json:"provider" db:"provider"`    // gemini, openai, claude
+	KeyType     string    `json:"key_type" db:"key_type"`    // api_key, project_key
 	Source      string    `json:"source" db:"source"`
 	RepoName    string    `json:"repo_name" db:"repo_name"`
 	FilePath    string    `json:"file_path" db:"file_path"`
 	FileURL     string    `json:"file_url" db:"file_url"`
 	SHA         string    `json:"sha" db:"sha"`
-	Reason      string    `json:"reason" db:"reason"`
+	Reason      string    `json:"reason" db:"reason"`        // rate_limited, quota_exceeded, disabled
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 }
 

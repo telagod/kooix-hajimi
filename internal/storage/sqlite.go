@@ -52,6 +52,8 @@ func (s *SQLiteStorage) migrate() error {
 		`CREATE TABLE IF NOT EXISTS valid_keys (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			key_value TEXT NOT NULL,
+			provider TEXT NOT NULL DEFAULT 'gemini',
+			key_type TEXT NOT NULL DEFAULT 'api_key',
 			source TEXT NOT NULL DEFAULT 'github',
 			repo_name TEXT NOT NULL,
 			file_path TEXT NOT NULL,
@@ -67,6 +69,8 @@ func (s *SQLiteStorage) migrate() error {
 		`CREATE TABLE IF NOT EXISTS rate_limited_keys (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			key_value TEXT NOT NULL,
+			provider TEXT NOT NULL DEFAULT 'gemini',
+			key_type TEXT NOT NULL DEFAULT 'api_key',
 			source TEXT NOT NULL DEFAULT 'github',
 			repo_name TEXT NOT NULL,
 			file_path TEXT NOT NULL,
@@ -128,7 +132,9 @@ func (s *SQLiteStorage) migrate() error {
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS idx_valid_keys_created_at ON valid_keys(created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_valid_keys_repo_name ON valid_keys(repo_name)`,
+		`CREATE INDEX IF NOT EXISTS idx_valid_keys_provider ON valid_keys(provider)`,
 		`CREATE INDEX IF NOT EXISTS idx_rate_limited_keys_created_at ON rate_limited_keys(created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_rate_limited_keys_provider ON rate_limited_keys(provider)`,
 		`CREATE INDEX IF NOT EXISTS idx_scanned_shas_created_at ON scanned_shas(created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_sync_queues_type ON sync_queues(queue_type)`,
 	}
@@ -137,6 +143,21 @@ func (s *SQLiteStorage) migrate() error {
 	for _, query := range append(queries, indexes...) {
 		if _, err := s.db.Exec(query); err != nil {
 			return fmt.Errorf("failed to execute migration query: %w", err)
+		}
+	}
+	
+	// 执行字段迁移（为现有表添加新字段）
+	alterQueries := []string{
+		`ALTER TABLE valid_keys ADD COLUMN provider TEXT DEFAULT 'gemini'`,
+		`ALTER TABLE valid_keys ADD COLUMN key_type TEXT DEFAULT 'api_key'`,
+		`ALTER TABLE rate_limited_keys ADD COLUMN provider TEXT DEFAULT 'gemini'`,
+		`ALTER TABLE rate_limited_keys ADD COLUMN key_type TEXT DEFAULT 'api_key'`,
+	}
+	
+	for _, query := range alterQueries {
+		// 忽略"duplicate column name"错误，因为字段可能已存在
+		if _, err := s.db.Exec(query); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("failed to execute alter query: %w", err)
 		}
 	}
 

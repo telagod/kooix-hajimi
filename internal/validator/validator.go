@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,11 +15,20 @@ import (
 	"kooix-hajimi/pkg/logger"
 )
 
+// KeyInfo 密钥信息
+type KeyInfo struct {
+	Key      string `json:"key"`
+	Provider string `json:"provider"` // gemini, openai, claude
+	Type     string `json:"type"`     // api_key, project_key
+}
+
 // ValidationResult 验证结果
 type ValidationResult struct {
 	Key       string        `json:"key"`
+	Provider  string        `json:"provider"`
+	Type      string        `json:"type"`
 	Valid     bool          `json:"valid"`
-	Status    string        `json:"status"` // valid, invalid, rate_limited, error
+	Status    string        `json:"status"` // valid, invalid, rate_limited, quota_exceeded, disabled, error
 	Error     string        `json:"error,omitempty"`
 	Latency   time.Duration `json:"latency"`
 	Timestamp time.Time     `json:"timestamp"`
@@ -96,8 +107,8 @@ func (v *Validator) ValidateKey(ctx context.Context, key string) (*ValidationRes
 	return result, nil
 }
 
-// ValidateBatch 批量验证Keys
-func (v *Validator) ValidateBatch(ctx context.Context, keys []string) ([]*ValidationResult, error) {
+// ValidateBatch 批量验证密钥
+func (v *Validator) ValidateBatch(ctx context.Context, keys []KeyInfo) ([]*ValidationResult, error) {
 	if len(keys) == 0 {
 		return nil, nil
 	}
@@ -105,7 +116,7 @@ func (v *Validator) ValidateBatch(ctx context.Context, keys []string) ([]*Valida
 	logger.Infof("Starting batch validation of %d keys", len(keys))
 
 	// 创建工作池
-	jobCh := make(chan string, len(keys))
+	jobCh := make(chan KeyInfo, len(keys))
 	resultCh := make(chan *ValidationResult, len(keys))
 
 	// 启动worker
@@ -114,11 +125,11 @@ func (v *Validator) ValidateBatch(ctx context.Context, keys []string) ([]*Valida
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			for key := range jobCh {
-				result, err := v.ValidateKey(ctx, key)
+			for keyInfo := range jobCh {
+				result, err := v.validateKeyByProvider(ctx, keyInfo)
 				if err != nil {
 					logger.Errorf("Worker %d validation error for key %s: %v", 
-						workerID, key[:10]+"...", err)
+						workerID, keyInfo.Provider, keyInfo.Key[:10]+"...", err)
 				}
 				resultCh <- result
 			}
@@ -128,9 +139,9 @@ func (v *Validator) ValidateBatch(ctx context.Context, keys []string) ([]*Valida
 	// 发送任务
 	go func() {
 		defer close(jobCh)
-		for _, key := range keys {
+		for _, keyInfo := range keys {
 			select {
-			case jobCh <- key:
+			case jobCh <- keyInfo:
 			case <-ctx.Done():
 				return
 			}
@@ -168,6 +179,46 @@ func (v *Validator) ValidateBatch(ctx context.Context, keys []string) ([]*Valida
 		validCount, invalidCount, rateLimitedCount, errorCount)
 
 	return results, nil
+}
+
+// validateKeyByProvider 根据提供商验证密钥
+func (v *Validator) validateKeyByProvider(ctx context.Context, keyInfo KeyInfo) (*ValidationResult, error) {
+	start := time.Now()
+	
+	result := &ValidationResult{
+		Key:       keyInfo.Key,
+		Provider:  keyInfo.Provider,
+		Type:      keyInfo.Type,
+		Timestamp: start,
+	}
+
+	// 根据提供商选择验证方法
+	var valid bool
+	var status string
+	var err error
+	
+	switch keyInfo.Provider {
+	case "gemini":
+		valid, status, err = v.validateGeminiKey(ctx, keyInfo.Key)
+	case "openai":
+		valid, status, err = v.validateOpenAIKey(ctx, keyInfo)
+	case "claude":
+		valid, status, err = v.validateClaudeKey(ctx, keyInfo)
+	default:
+		valid = false
+		status = "error"
+		err = fmt.Errorf("unsupported provider: %s", keyInfo.Provider)
+	}
+	
+	result.Valid = valid
+	result.Status = status
+	result.Latency = time.Since(start)
+	
+	if err != nil {
+		result.Error = err.Error()
+	}
+
+	return result, err
 }
 
 // validateGeminiKey 验证Gemini API Key
@@ -215,6 +266,103 @@ func (v *Validator) validateGeminiKey(ctx context.Context, key string) (bool, st
 	}
 
 	return true, "valid", nil
+}
+
+// validateOpenAIKey 验证OpenAI API Key
+func (v *Validator) validateOpenAIKey(ctx context.Context, keyInfo KeyInfo) (bool, string, error) {
+	client := &http.Client{Timeout: v.timeout}
+	
+	// 根据密钥类型选择不同的验证端点
+	var url string
+	if keyInfo.Type == "project_key" {
+		url = "https://api.openai.com/v1/models" // 项目密钥使用models端点
+	} else {
+		url = "https://api.openai.com/v1/models" // 标准API密钥
+	}
+	
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return false, "error", fmt.Errorf("failed to create request: %w", err)
+	}
+	
+	req.Header.Set("Authorization", "Bearer "+keyInfo.Key)
+	req.Header.Set("User-Agent", "Kooix-Hajimi/1.0")
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, "error", fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	// 分析HTTP状态码和错误
+	switch resp.StatusCode {
+	case 200:
+		return true, "valid", nil
+	case 401:
+		return false, "invalid", nil // Invalid API key
+	case 403:
+		return false, "invalid", nil // Forbidden - key disabled
+	case 429:
+		return false, "rate_limited", nil // Rate limited
+	case 402:
+		return false, "quota_exceeded", nil // Payment required
+	case 500, 502, 503, 504:
+		return false, "error", fmt.Errorf("server error: %d", resp.StatusCode)
+	default:
+		return false, "error", fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+}
+
+// validateClaudeKey 验证Claude API Key
+func (v *Validator) validateClaudeKey(ctx context.Context, keyInfo KeyInfo) (bool, string, error) {
+	client := &http.Client{Timeout: v.timeout}
+	
+	// Claude API使用messages端点进行简单验证
+	url := "https://api.anthropic.com/v1/messages"
+	
+	// 创建简单的测试请求
+	payload := strings.NewReader(`{
+		"model": "claude-3-haiku-20240307",
+		"max_tokens": 1,
+		"messages": [{"role": "user", "content": "hi"}]
+	}`)
+	
+	req, err := http.NewRequestWithContext(ctx, "POST", url, payload)
+	if err != nil {
+		return false, "error", fmt.Errorf("failed to create request: %w", err)
+	}
+	
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", keyInfo.Key)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("User-Agent", "Kooix-Hajimi/1.0")
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, "error", fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	// 分析HTTP状态码和错误
+	switch resp.StatusCode {
+	case 200:
+		return true, "valid", nil
+	case 400:
+		// 可能是有效key但请求格式问题，视为有效
+		return true, "valid", nil
+	case 401:
+		return false, "invalid", nil // Invalid API key
+	case 403:
+		return false, "invalid", nil // Forbidden - key disabled
+	case 429:
+		return false, "rate_limited", nil // Rate limited
+	case 402:
+		return false, "quota_exceeded", nil // Payment required
+	case 500, 502, 503, 504:
+		return false, "error", fmt.Errorf("server error: %d", resp.StatusCode)
+	default:
+		return false, "error", fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
 }
 
 // GetStats 获取验证统计信息

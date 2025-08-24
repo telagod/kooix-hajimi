@@ -271,38 +271,44 @@ func (s *Scanner) processSearchItem(ctx context.Context, item *github.SearchItem
 	logger.Infof("Found %d potential keys in %s", len(keys), item.Path)
 
 	// 验证密钥
-	results, err := s.validator.ValidateBatch(ctx, keys)
-	if err != nil {
-		logger.Errorf("Validation failed for %s: %v", item.Path, err)
-		return nil
-	}
-
-	// 分类保存结果
 	var validKeys []*storage.ValidKey
 	var rateLimitedKeys []*storage.RateLimitedKey
-
-	for _, result := range results {
-		switch result.Status {
-		case "valid":
-			validKeys = append(validKeys, &storage.ValidKey{
-				Key:         result.Key,
-				Source:      "github",
-				RepoName:    item.Repository.FullName,
-				FilePath:    item.Path,
-				FileURL:     item.HTMLURL,
-				SHA:         item.SHA,
-				ValidatedAt: result.Timestamp,
-			})
-		case "rate_limited":
-			rateLimitedKeys = append(rateLimitedKeys, &storage.RateLimitedKey{
-				Key:      result.Key,
-				Source:   "github",
-				RepoName: item.Repository.FullName,
-				FilePath: item.Path,
-				FileURL:  item.HTMLURL,
-				SHA:      item.SHA,
-				Reason:   "rate_limited",
-			})
+	
+	for _, keyInfo := range keys {
+		results, err := s.validator.ValidateBatch(ctx, []validator.KeyInfo{keyInfo})
+		if err != nil {
+			logger.Errorf("Validation failed for %s key %s: %v", keyInfo.Provider, keyInfo.Key[:10]+"...", err)
+			continue
+		}
+		
+		// 处理验证结果
+		for _, result := range results {
+			switch result.Status {
+			case "valid":
+				validKeys = append(validKeys, &storage.ValidKey{
+					Key:         result.Key,
+					Provider:    result.Provider,
+					KeyType:     result.Type,
+					Source:      "github",
+					RepoName:    item.Repository.FullName,
+					FilePath:    item.Path,
+					FileURL:     item.HTMLURL,
+					SHA:         item.SHA,
+					ValidatedAt: result.Timestamp,
+				})
+			case "rate_limited", "quota_exceeded":
+				rateLimitedKeys = append(rateLimitedKeys, &storage.RateLimitedKey{
+					Key:      result.Key,
+					Provider: result.Provider,
+					KeyType:  result.Type,
+					Source:   "github",
+					RepoName: item.Repository.FullName,
+					FilePath: item.Path,
+					FileURL:  item.HTMLURL,
+					SHA:      item.SHA,
+					Reason:   result.Status,
+				})
+			}
 		}
 	}
 
@@ -375,32 +381,90 @@ func (s *Scanner) filterItems(items []github.SearchItem) []github.SearchItem {
 }
 
 // extractKeys 从内容中提取API密钥
-func (s *Scanner) extractKeys(content string) []string {
+func (s *Scanner) extractKeys(content string) []validator.KeyInfo {
+	var allKeys []validator.KeyInfo
+	
 	// Gemini API密钥正则表达式
-	pattern := `AIzaSy[A-Za-z0-9\-_]{33}`
-	regex := regexp.MustCompile(pattern)
+	geminiPattern := `AIzaSy[A-Za-z0-9\-_]{33}`
+	geminiRegex := regexp.MustCompile(geminiPattern)
+	geminiMatches := geminiRegex.FindAllString(content, -1)
 	
-	matches := regex.FindAllString(content, -1)
+	// OpenAI API密钥正则表达式
+	openaiPattern := `sk-[A-Za-z0-9]{48}`
+	openaiRegex := regexp.MustCompile(openaiPattern)
+	openaiMatches := openaiRegex.FindAllString(content, -1)
 	
-	// 去重和过滤占位符
-	keySet := make(map[string]bool)
-	var keys []string
+	// OpenAI项目密钥正则表达式 (新格式)
+	openaiProjectPattern := `sk-proj-[A-Za-z0-9]{48}`
+	openaiProjectRegex := regexp.MustCompile(openaiProjectPattern)
+	openaiProjectMatches := openaiProjectRegex.FindAllString(content, -1)
 	
-	for _, match := range matches {
-		if keySet[match] {
-			continue
+	// Claude API密钥正则表达式
+	claudePattern := `sk-ant-api03-[A-Za-z0-9\-_]{95}AA`
+	claudeRegex := regexp.MustCompile(claudePattern)
+	claudeMatches := claudeRegex.FindAllString(content, -1)
+	
+	// 处理Gemini密钥
+	for _, match := range geminiMatches {
+		if !s.isPlaceholderKey(match, content) {
+			allKeys = append(allKeys, validator.KeyInfo{
+				Key:      match,
+				Provider: "gemini",
+				Type:     "api_key",
+			})
 		}
-		
-		// 过滤明显的占位符
-		if s.isPlaceholderKey(match, content) {
-			continue
-		}
-		
-		keySet[match] = true
-		keys = append(keys, match)
 	}
 	
-	return keys
+	// 处理OpenAI密钥
+	for _, match := range openaiMatches {
+		if !s.isPlaceholderKey(match, content) {
+			allKeys = append(allKeys, validator.KeyInfo{
+				Key:      match,
+				Provider: "openai",
+				Type:     "api_key",
+			})
+		}
+	}
+	
+	// 处理OpenAI项目密钥
+	for _, match := range openaiProjectMatches {
+		if !s.isPlaceholderKey(match, content) {
+			allKeys = append(allKeys, validator.KeyInfo{
+				Key:      match,
+				Provider: "openai",
+				Type:     "project_key",
+			})
+		}
+	}
+	
+	// 处理Claude密钥
+	for _, match := range claudeMatches {
+		if !s.isPlaceholderKey(match, content) {
+			allKeys = append(allKeys, validator.KeyInfo{
+				Key:      match,
+				Provider: "claude",
+				Type:     "api_key",
+			})
+		}
+	}
+	
+	// 去重
+	return s.deduplicateKeys(allKeys)
+}
+
+// deduplicateKeys 去重密钥
+func (s *Scanner) deduplicateKeys(keys []validator.KeyInfo) []validator.KeyInfo {
+	keySet := make(map[string]bool)
+	var result []validator.KeyInfo
+	
+	for _, keyInfo := range keys {
+		if !keySet[keyInfo.Key] {
+			keySet[keyInfo.Key] = true
+			result = append(result, keyInfo)
+		}
+	}
+	
+	return result
 }
 
 // isPlaceholderKey 检查是否为占位符密钥
