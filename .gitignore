@@ -32,6 +32,7 @@ Thumbs.db
 .env
 .env.local
 .env.production
+CLAUDE.md
 
 # Logs and temporary files
 logs/

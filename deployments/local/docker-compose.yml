@@ -1,0 +1,203 @@
+version: '3.8'
+
+services:
+  # 主应用 - 连接外部服务
+  kooix-hajimi:
+    image: kooix-hajimi:latest
+    container_name: kooix-hajimi
+    restart: unless-stopped
+    environment:
+      # 基础配置
+      - GITHUB_TOKENS=${GITHUB_TOKENS}
+      - HAJIMI_CHECK_MODEL=${HAJIMI_CHECK_MODEL:-gemini-2.5-flash}
+      
+      # 外部数据库配置
+      - STORAGE_TYPE=${STORAGE_TYPE:-postgres}
+      - STORAGE_POSTGRES_HOST=${POSTGRES_HOST}
+      - STORAGE_POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - STORAGE_POSTGRES_USER=${POSTGRES_USER}
+      - STORAGE_POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - STORAGE_POSTGRES_DATABASE=${POSTGRES_DATABASE}
+      - STORAGE_POSTGRES_SSL_MODE=${POSTGRES_SSL_MODE:-require}
+      - STORAGE_POSTGRES_MAX_OPEN_CONNECTIONS=${POSTGRES_MAX_OPEN_CONNECTIONS:-50}
+      - STORAGE_POSTGRES_MAX_IDLE_CONNECTIONS=${POSTGRES_MAX_IDLE_CONNECTIONS:-10}
+      - STORAGE_POSTGRES_CONNECTION_MAX_LIFETIME=${POSTGRES_CONNECTION_MAX_LIFETIME:-1h}
+      
+      # 外部Redis配置 (可选)
+      - REDIS_ENABLED=${REDIS_ENABLED:-true}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DB=${REDIS_DB:-0}
+      - REDIS_MAX_IDLE=${REDIS_MAX_IDLE:-10}
+      - REDIS_MAX_ACTIVE=${REDIS_MAX_ACTIVE:-100}
+      - REDIS_IDLE_TIMEOUT=${REDIS_IDLE_TIMEOUT:-240s}
+      
+      # 代理配置 (可选外部WARP或其他代理)
+      - PROXY=${PROXY}
+      
+      # 扫描配置
+      - SCANNER_WORKER_COUNT=${SCANNER_WORKER_COUNT:-10}
+      - SCANNER_SCAN_INTERVAL=${SCANNER_SCAN_INTERVAL:-1h}
+      - SCANNER_BATCH_SIZE=${SCANNER_BATCH_SIZE:-200}
+      
+      # Web服务配置
+      - WEB_ENABLED=${WEB_ENABLED:-true}
+      - WEB_PORT=${WEB_PORT:-8080}
+      - WEB_HOST=${WEB_HOST:-0.0.0.0}
+      - WEB_READ_TIMEOUT=${WEB_READ_TIMEOUT:-30s}
+      - WEB_WRITE_TIMEOUT=${WEB_WRITE_TIMEOUT:-30s}
+      
+      # 速率限制配置
+      - RATE_LIMIT_REQUESTS_PER_MINUTE=${RATE_LIMIT_REQUESTS_PER_MINUTE:-60}
+      - RATE_LIMIT_BURST_SIZE=${RATE_LIMIT_BURST_SIZE:-20}
+      - RATE_LIMIT_ADAPTIVE_ENABLED=${RATE_LIMIT_ADAPTIVE_ENABLED:-true}
+      - RATE_LIMIT_SUCCESS_THRESHOLD=${RATE_LIMIT_SUCCESS_THRESHOLD:-0.8}
+      - RATE_LIMIT_BACKOFF_MULTIPLIER=${RATE_LIMIT_BACKOFF_MULTIPLIER:-1.5}
+      - RATE_LIMIT_COOLDOWN_DURATION=${RATE_LIMIT_COOLDOWN_DURATION:-2m}
+      
+      # 验证器配置
+      - VALIDATOR_WORKER_COUNT=${VALIDATOR_WORKER_COUNT:-5}
+      - VALIDATOR_TIMEOUT=${VALIDATOR_TIMEOUT:-30s}
+      - VALIDATOR_BATCH_SIZE=${VALIDATOR_BATCH_SIZE:-10}
+      
+      # 日志配置
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - LOG_OUTPUT=${LOG_OUTPUT:-stdout}
+      
+      # 监控配置
+      - METRICS_ENABLED=${METRICS_ENABLED:-true}
+      - METRICS_PORT=${METRICS_PORT:-9090}
+      - HEALTH_CHECK_ENABLED=${HEALTH_CHECK_ENABLED:-true}
+      
+      # 查询和过滤配置
+      - QUERIES_FILE=${QUERIES_FILE:-queries.txt}
+      - DATE_RANGE_DAYS=${DATE_RANGE_DAYS:-730}
+      - FILE_BLACKLIST=${FILE_BLACKLIST:-readme,docs,doc/,.md,example,sample,tutorial,test,spec,demo,mock}
+      
+      # 外部同步配置
+      - GEMINI_BALANCER_SYNC_ENABLED=${GEMINI_BALANCER_SYNC_ENABLED:-false}
+      - GEMINI_BALANCER_URL=${GEMINI_BALANCER_URL}
+      - GEMINI_BALANCER_AUTH=${GEMINI_BALANCER_AUTH}
+      - GPT_LOAD_SYNC_ENABLED=${GPT_LOAD_SYNC_ENABLED:-false}
+      - GPT_LOAD_URL=${GPT_LOAD_URL}
+      - GPT_LOAD_AUTH=${GPT_LOAD_AUTH}
+      - GPT_LOAD_GROUP_NAME=${GPT_LOAD_GROUP_NAME}
+      
+      # 安全配置
+      - API_SECRET_KEY=${API_SECRET_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - WEB_ADMIN_USERNAME=${WEB_ADMIN_USERNAME:-admin}
+      - WEB_ADMIN_PASSWORD=${WEB_ADMIN_PASSWORD}
+      
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+      - "${METRICS_PORT:-9090}:9090"
+    volumes:
+      - ./data:/app/data
+      - ./config/queries.txt:/app/queries.txt:ro
+      - ./config/app.yaml:/app/config/app.yaml:ro
+    networks:
+      - kooix-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: ${APP_MEMORY_LIMIT:-1G}
+          cpus: '${APP_CPU_LIMIT:-1.0}'
+        reservations:
+          memory: ${APP_MEMORY_RESERVATION:-512M}
+          cpus: '${APP_CPU_RESERVATION:-0.5}'
+
+  # 可选：本地WARP代理 (如果不使用外部代理)
+  warp:
+    image: caomingjun/warp
+    container_name: kooix-warp
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+    environment:
+      - WARP_SLEEP=2
+      - GOST_ARGS=-L :1080
+      - WARP_LICENSE_KEY=${WARP_LICENSE_KEY}
+    ports:
+      - "${WARP_PORT:-1080}:1080"
+    volumes:
+      - warp-data:/var/lib/cloudflare-warp
+    networks:
+      - kooix-network
+    healthcheck:
+      test: ["CMD", "curl", "--socks5-hostname", "127.0.0.1:1080", "https://cloudflare.com/cdn-cgi/trace"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+    profiles:
+      - warp-local
+
+  # 可选：本地Prometheus监控 (如果不使用外部监控)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: kooix-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.enable-lifecycle'
+    ports:
+      - "${PROMETHEUS_PORT:-9091}:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - kooix-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    profiles:
+      - monitoring
+
+  # 可选：本地Grafana (如果不使用外部监控)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: kooix-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin123}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana:/etc/grafana/provisioning:ro
+    networks:
+      - kooix-network
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    profiles:
+      - monitoring
+
+networks:
+  kooix-network:
+    driver: bridge
+
+volumes:
+  warp-data:
+  prometheus-data:
+  grafana-data:

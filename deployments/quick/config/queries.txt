@@ -1,0 +1,32 @@
+# GitHub搜索查询配置文件
+# 每行一个查询语句，支持GitHub搜索语法
+# 以#开头的行为注释，空行会被忽略
+
+# 基础Gemini API密钥搜索
+AIzaSy in:file
+
+# 环境配置文件中的密钥
+AIzaSy in:file filename:.env
+AIzaSy in:file filename:config
+AIzaSy in:file filename:.config
+
+# 代码文件中的密钥
+AIzaSy in:file extension:py
+AIzaSy in:file extension:js
+AIzaSy in:file extension:ts
+AIzaSy in:file extension:go
+AIzaSy in:file extension:java
+
+# 排除文档和测试文件
+AIzaSy in:file -path:docs -path:test -path:example
+
+# 特定项目类型
+AIzaSy in:file path:src
+AIzaSy in:file path:app
+AIzaSy in:file path:lib
+
+# 最近活跃的项目 (过去30天有提交)
+AIzaSy in:file pushed:>2024-07-01
+
+# 组合查询 - 高质量密钥
+AIzaSy in:file -filename:README -filename:example -path:docs -path:test stars:>5

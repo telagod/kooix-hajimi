@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  # WARP代理服务
+  warp:
+    image: caomingjun/warp
+    container_name: kooix-hajimi-warp
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+    environment:
+      - WARP_SLEEP=2
+      - GOST_ARGS=-L :1080
+    ports:
+      - "1080:1080"
+    volumes:
+      - ./data/warp:/var/lib/cloudflare-warp
+    networks:
+      - kooix-network
+    healthcheck:
+      test: ["CMD", "curl", "--socks5-hostname", "127.0.0.1:1080", "https://cloudflare.com/cdn-cgi/trace"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 主应用服务
+  kooix-hajimi:
+    image: kooix-hajimi:latest
+    container_name: kooix-hajimi-app
+    restart: unless-stopped
+    depends_on:
+      warp:
+        condition: service_healthy
+    environment:
+      # 基础配置
+      - GITHUB_TOKENS=${GITHUB_TOKENS}
+      - HAJIMI_CHECK_MODEL=gemini-2.5-flash
+      
+      # 存储配置 - 使用SQLite
+      - STORAGE_TYPE=sqlite
+      - STORAGE_SQLITE_PATH=/app/data/hajimi.db
+      
+      # 网络配置 - 使用WARP代理
+      - PROXY=socks5://warp:1080
+      
+      # 查询配置
+      - QUERIES_FILE=queries.txt
+      - DATE_RANGE_DAYS=730
+      
+      # Web服务配置
+      - WEB_ENABLED=true
+      - WEB_PORT=8080
+      - WEB_HOST=0.0.0.0
+      
+      # 日志配置
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      
+      # 扫描配置
+      - SCANNER_WORKER_COUNT=5
+      - SCANNER_SCAN_INTERVAL=1h
+      - SCANNER_BATCH_SIZE=100
+      
+      # 速率限制配置
+      - RATE_LIMIT_REQUESTS_PER_MINUTE=30
+      - RATE_LIMIT_BURST_SIZE=10
+      - RATE_LIMIT_ADAPTIVE_ENABLED=true
+      
+      # 文件过滤配置
+      - FILE_BLACKLIST=readme,docs,doc/,.md,example,sample,tutorial,test,spec,demo,mock
+      
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data/app:/app/data
+      - ./config/queries.txt:/app/queries.txt:ro
+    networks:
+      - kooix-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  kooix-network:
+    driver: bridge
+
+volumes:
+  warp-data:
+  app-data:
