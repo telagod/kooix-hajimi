@@ -35,6 +35,18 @@ type ScannerConfig struct {
 	QueryFile      string        `mapstructure:"query_file"`
 	DateRangeDays  int           `mapstructure:"date_range_days"`
 	FileBlacklist  []string      `mapstructure:"file_blacklist"`
+	
+	// 验证器配置
+	Validator ValidatorConfig `mapstructure:"validator"`
+}
+
+// ValidatorConfig 验证器配置
+type ValidatorConfig struct {
+	ModelName           string        `mapstructure:"model_name"`
+	TierDetectionModel  string        `mapstructure:"tier_detection_model"`
+	WorkerCount         int           `mapstructure:"worker_count"`
+	Timeout             time.Duration `mapstructure:"timeout"`
+	EnableTierDetection bool          `mapstructure:"enable_tier_detection"`
 }
 
 // StorageConfig 存储配置
@@ -140,6 +152,13 @@ func Load() (*Config, error) {
 		"readme", "docs", "doc/", ".md", "example", "sample", 
 		"tutorial", "test", "spec", "demo", "mock",
 	})
+	
+	// 验证器默认配置
+	viper.SetDefault("scanner.validator.model_name", "gemini-2.5-flash")
+	viper.SetDefault("scanner.validator.tier_detection_model", "gemini-2.5-flash")
+	viper.SetDefault("scanner.validator.worker_count", 5)
+	viper.SetDefault("scanner.validator.timeout", "30s")
+	viper.SetDefault("scanner.validator.enable_tier_detection", false)
 	
 	viper.SetDefault("storage.type", "sqlite")
 	viper.SetDefault("storage.data_path", "./data")

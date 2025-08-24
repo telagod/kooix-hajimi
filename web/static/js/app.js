@@ -218,8 +218,8 @@ class HajimiKingApp {
 
         // Set table headers based on key type
         const headers = this.currentKeyType === 'valid' 
-            ? ['Key', 'Repository', 'File', 'Validated At', 'Actions']
-            : ['Key', 'Repository', 'File', 'Reason', 'Created At', 'Actions'];
+            ? ['Key', 'Provider', 'Tier', 'Repository', 'File', 'Validated At', 'Actions']
+            : ['Key', 'Provider', 'Repository', 'File', 'Reason', 'Created At', 'Actions'];
 
         tableHead.innerHTML = `
             <tr>
@@ -251,6 +251,8 @@ class HajimiKingApp {
                 return `
                     <tr>
                         <td><code class="key-display">${maskedKey}</code></td>
+                        <td><span class="badge bg-primary">${key.provider || 'gemini'}</span></td>
+                        <td>${this.renderTierBadge(key.tier, key.tier_confidence)}</td>
                         <td><a href="https://github.com/${key.repo_name}" target="_blank">${shortRepo}</a></td>
                         <td><a href="${key.file_url}" target="_blank">${shortFile}</a></td>
                         <td>${new Date(key.validated_at).toLocaleString()}</td>
@@ -265,6 +267,7 @@ class HajimiKingApp {
                 return `
                     <tr>
                         <td><code class="key-display">${maskedKey}</code></td>
+                        <td><span class="badge bg-primary">${key.provider || 'gemini'}</span></td>
                         <td><a href="https://github.com/${key.repo_name}" target="_blank">${shortRepo}</a></td>
                         <td><a href="${key.file_url}" target="_blank">${shortFile}</a></td>
                         <td><span class="badge bg-warning">${key.reason}</span></td>
@@ -339,6 +342,17 @@ class HajimiKingApp {
         return key.substring(0, 4) + '*'.repeat(key.length - 8) + key.substring(key.length - 4);
     }
 
+    renderTierBadge(tier, confidence) {
+        if (!tier || tier === 'unknown') {
+            return '<span class="badge bg-secondary">Unknown</span>';
+        }
+        
+        const badgeClass = tier === 'paid' ? 'bg-success' : 'bg-warning';
+        const confidenceText = confidence ? ` (${Math.round(confidence * 100)}%)` : '';
+        
+        return `<span class="badge ${badgeClass}">${tier.charAt(0).toUpperCase() + tier.slice(1)}${confidenceText}</span>`;
+    }
+
     showTab(tabName) {
         // Hide all tabs
         document.querySelectorAll('.tab-content').forEach(tab => {
@@ -360,6 +374,9 @@ class HajimiKingApp {
         switch (tabName) {
             case 'keys':
                 this.loadKeys();
+                break;
+            case 'settings':
+                this.loadSettings();
                 break;
             case 'logs':
                 this.loadLogs();
@@ -478,6 +495,159 @@ class HajimiKingApp {
             }
         }, 5000);
     }
+
+    // Settings management
+    async loadSettings() {
+        try {
+            const response = await fetch('/api/config');
+            const data = await response.json();
+            
+            if (data.code === 0) {
+                this.populateSettingsForm(data.data);
+            } else {
+                this.showNotification('Failed to load settings: ' + data.message, 'error');
+            }
+        } catch (error) {
+            console.error('Failed to load settings:', error);
+            this.showNotification('Failed to load settings', 'error');
+        }
+    }
+
+    populateSettingsForm(config) {
+        // Scanner settings
+        if (config.scanner) {
+            if (config.scanner.worker_count !== undefined) {
+                document.getElementById('scanner-worker-count').value = config.scanner.worker_count;
+            }
+            if (config.scanner.batch_size !== undefined) {
+                document.getElementById('batch-size').value = config.scanner.batch_size;
+            }
+            if (config.scanner.scan_interval !== undefined) {
+                document.getElementById('scan-interval-setting').value = config.scanner.scan_interval;
+            }
+            if (config.scanner.date_range_days !== undefined) {
+                document.getElementById('date-range-setting').value = config.scanner.date_range_days;
+            }
+            if (config.scanner.auto_start !== undefined) {
+                document.getElementById('auto-start').checked = config.scanner.auto_start;
+            }
+        }
+
+        // Validator settings
+        if (config.validator) {
+            if (config.validator.model_name) {
+                document.getElementById('model-name').value = config.validator.model_name;
+            }
+            if (config.validator.tier_detection_model) {
+                document.getElementById('tier-detection-model').value = config.validator.tier_detection_model;
+            }
+            if (config.validator.worker_count !== undefined) {
+                document.getElementById('validator-worker-count').value = config.validator.worker_count;
+            }
+            if (config.validator.timeout !== undefined) {
+                document.getElementById('validator-timeout').value = config.validator.timeout;
+            }
+            if (config.validator.enable_tier_detection !== undefined) {
+                document.getElementById('enable-tier-detection').checked = config.validator.enable_tier_detection;
+            }
+        }
+
+        // Rate limit settings
+        if (config.rate_limit) {
+            if (config.rate_limit.enabled !== undefined) {
+                document.getElementById('rate-limit-enabled').checked = config.rate_limit.enabled;
+            }
+            if (config.rate_limit.requests_per_minute !== undefined) {
+                document.getElementById('requests-per-minute').value = config.rate_limit.requests_per_minute;
+            }
+            if (config.rate_limit.burst_size !== undefined) {
+                document.getElementById('burst-size').value = config.rate_limit.burst_size;
+            }
+            if (config.rate_limit.adaptive_enabled !== undefined) {
+                document.getElementById('adaptive-enabled').checked = config.rate_limit.adaptive_enabled;
+            }
+        }
+    }
+
+    collectSettingsFromForm() {
+        const settings = {
+            scanner: {
+                worker_count: parseInt(document.getElementById('scanner-worker-count').value),
+                batch_size: parseInt(document.getElementById('batch-size').value),
+                date_range_days: parseInt(document.getElementById('date-range-setting').value),
+                auto_start: document.getElementById('auto-start').checked
+            },
+            validator: {
+                model_name: document.getElementById('model-name').value,
+                tier_detection_model: document.getElementById('tier-detection-model').value,
+                worker_count: parseInt(document.getElementById('validator-worker-count').value),
+                timeout: parseInt(document.getElementById('validator-timeout').value),
+                enable_tier_detection: document.getElementById('enable-tier-detection').checked
+            },
+            rate_limit: {
+                enabled: document.getElementById('rate-limit-enabled').checked,
+                requests_per_minute: parseInt(document.getElementById('requests-per-minute').value),
+                burst_size: parseInt(document.getElementById('burst-size').value),
+                adaptive_enabled: document.getElementById('adaptive-enabled').checked
+            }
+        };
+
+        return settings;
+    }
+
+    async saveAllSettings() {
+        try {
+            const settings = this.collectSettingsFromForm();
+            
+            const response = await fetch('/api/config', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(settings)
+            });
+            
+            const data = await response.json();
+            
+            if (data.code === 0) {
+                this.showNotification('Settings saved successfully', 'success');
+                if (data.data && data.data.note) {
+                    this.showNotification(data.data.note, 'warning');
+                }
+            } else {
+                this.showNotification('Failed to save settings: ' + data.message, 'error');
+            }
+        } catch (error) {
+            console.error('Failed to save settings:', error);
+            this.showNotification('Failed to save settings', 'error');
+        }
+    }
+
+    resetToDefaults() {
+        if (!confirm('Are you sure you want to reset all settings to defaults?')) {
+            return;
+        }
+
+        // Reset to default values
+        document.getElementById('scanner-worker-count').value = 20;
+        document.getElementById('batch-size').value = 100;
+        document.getElementById('scan-interval-setting').value = 10;
+        document.getElementById('date-range-setting').value = 730;
+        document.getElementById('auto-start').checked = false;
+
+        document.getElementById('model-name').value = 'gemini-2.5-flash';
+        document.getElementById('tier-detection-model').value = 'gemini-2.5-flash';
+        document.getElementById('validator-worker-count').value = 5;
+        document.getElementById('validator-timeout').value = 30;
+        document.getElementById('enable-tier-detection').checked = false;
+
+        document.getElementById('rate-limit-enabled').checked = true;
+        document.getElementById('requests-per-minute').value = 30;
+        document.getElementById('burst-size').value = 10;
+        document.getElementById('adaptive-enabled').checked = true;
+
+        this.showNotification('Settings reset to defaults', 'info');
+    }
 }
 
 // Initialize app when DOM is loaded
@@ -519,4 +689,17 @@ function refreshLogs() {
 function clearLogs() {
     // TODO: Implement log clear
     app.showNotification('Log clear not implemented yet', 'info');
+}
+
+// Settings functions
+function loadSettings() {
+    app.loadSettings();
+}
+
+function saveAllSettings() {
+    app.saveAllSettings();
+}
+
+function resetToDefaults() {
+    app.resetToDefaults();
 }

@@ -54,6 +54,8 @@ func (s *SQLiteStorage) migrate() error {
 			key_value TEXT NOT NULL,
 			provider TEXT NOT NULL DEFAULT 'gemini',
 			key_type TEXT NOT NULL DEFAULT 'api_key',
+			tier TEXT NOT NULL DEFAULT 'unknown',
+			tier_confidence REAL NOT NULL DEFAULT 0.0,
 			source TEXT NOT NULL DEFAULT 'github',
 			repo_name TEXT NOT NULL,
 			file_path TEXT NOT NULL,
@@ -133,6 +135,8 @@ func (s *SQLiteStorage) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_valid_keys_created_at ON valid_keys(created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_valid_keys_repo_name ON valid_keys(repo_name)`,
 		`CREATE INDEX IF NOT EXISTS idx_valid_keys_provider ON valid_keys(provider)`,
+		`CREATE INDEX IF NOT EXISTS idx_valid_keys_tier ON valid_keys(tier)`,
+		`CREATE INDEX IF NOT EXISTS idx_valid_keys_provider_tier ON valid_keys(provider, tier)`,
 		`CREATE INDEX IF NOT EXISTS idx_rate_limited_keys_created_at ON rate_limited_keys(created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_rate_limited_keys_provider ON rate_limited_keys(provider)`,
 		`CREATE INDEX IF NOT EXISTS idx_scanned_shas_created_at ON scanned_shas(created_at)`,
@@ -150,6 +154,8 @@ func (s *SQLiteStorage) migrate() error {
 	alterQueries := []string{
 		`ALTER TABLE valid_keys ADD COLUMN provider TEXT DEFAULT 'gemini'`,
 		`ALTER TABLE valid_keys ADD COLUMN key_type TEXT DEFAULT 'api_key'`,
+		`ALTER TABLE valid_keys ADD COLUMN tier TEXT DEFAULT 'unknown'`,
+		`ALTER TABLE valid_keys ADD COLUMN tier_confidence REAL DEFAULT 0.0`,
 		`ALTER TABLE rate_limited_keys ADD COLUMN provider TEXT DEFAULT 'gemini'`,
 		`ALTER TABLE rate_limited_keys ADD COLUMN key_type TEXT DEFAULT 'api_key'`,
 	}
@@ -203,13 +209,20 @@ func (s *SQLiteStorage) SaveValidKeys(ctx context.Context, keys []*ValidKey) err
 
 	query := `
 		INSERT OR REPLACE INTO valid_keys 
-		(key_value, source, repo_name, file_path, file_url, sha, validated_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		(key_value, provider, key_type, tier, tier_confidence, source, repo_name, file_path, file_url, sha, validated_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 	`
 
 	for _, key := range keys {
+		// 设置默认值
+		tier := key.Tier
+		if tier == "" {
+			tier = "unknown"
+		}
+		
 		_, err := tx.ExecContext(ctx, query,
-			key.Key, key.Source, key.RepoName, key.FilePath, 
+			key.Key, key.Provider, key.KeyType, tier, key.TierConfidence,
+			key.Source, key.RepoName, key.FilePath, 
 			key.FileURL, key.SHA, key.ValidatedAt)
 		if err != nil {
 			return fmt.Errorf("failed to insert valid key: %w", err)
@@ -263,7 +276,7 @@ func (s *SQLiteStorage) GetValidKeys(ctx context.Context, filter *KeyFilter) ([]
 
 	// 构建查询
 	query := fmt.Sprintf(`
-		SELECT id, key_value, source, repo_name, file_path, file_url, sha, 
+		SELECT id, key_value, provider, key_type, tier, tier_confidence, source, repo_name, file_path, file_url, sha, 
 		       validated_at, created_at, updated_at
 		FROM valid_keys %s %s
 	`, whereClause, s.buildOrderClause(filter))
@@ -318,6 +331,16 @@ func (s *SQLiteStorage) buildWhereClause(filter *KeyFilter) (string, []interface
 		args = append(args, filter.Source)
 	}
 
+	if filter.Provider != "" {
+		conditions = append(conditions, "provider = ?")
+		args = append(args, filter.Provider)
+	}
+
+	if filter.Tier != "" {
+		conditions = append(conditions, "tier = ?")
+		args = append(args, filter.Tier)
+	}
+
 	if filter.RepoName != "" {
 		conditions = append(conditions, "repo_name LIKE ?")
 		args = append(args, "%"+filter.RepoName+"%")
@@ -350,6 +373,11 @@ func (s *SQLiteStorage) buildOrderClause(filter *KeyFilter) string {
 	orderBy := "created_at"
 	if filter.OrderBy != "" {
 		orderBy = filter.OrderBy
+	}
+
+	// 如果启用了付费key优先，添加层级排序
+	if filter.PrioritizePaid {
+		orderBy = "CASE WHEN tier = 'paid' THEN 0 WHEN tier = 'unknown' THEN 1 ELSE 2 END, tier_confidence DESC, " + orderBy
 	}
 
 	orderDir := "DESC"
@@ -581,4 +609,29 @@ func (s *SQLiteStorage) ClearGPTLoadQueue(ctx context.Context) error {
 func sha256(data []byte) []byte {
 	// 简化实现，实际应该使用crypto/sha256
 	return []byte(fmt.Sprintf("%x", len(data)))
+}
+
+// GetValidKeysByTier 按层级获取有效密钥
+func (s *SQLiteStorage) GetValidKeysByTier(ctx context.Context, provider string, tier string) ([]*ValidKey, error) {
+	query := `
+		SELECT id, key_value, provider, key_type, tier, tier_confidence, source, repo_name, file_path, file_url, sha, 
+		       validated_at, created_at, updated_at
+		FROM valid_keys 
+		WHERE provider = ? AND tier = ?
+		ORDER BY tier_confidence DESC, created_at DESC
+	`
+	
+	var keys []*ValidKey
+	err := s.db.SelectContext(ctx, &keys, query, provider, tier)
+	return keys, err
+}
+
+// UpdateKeyTier 更新密钥层级信息
+func (s *SQLiteStorage) UpdateKeyTier(ctx context.Context, keyID int64, tier string, confidence float64) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE valid_keys 
+		SET tier = ?, tier_confidence = ?, updated_at = datetime('now')
+		WHERE id = ?
+	`, tier, confidence, keyID)
+	return err
 }

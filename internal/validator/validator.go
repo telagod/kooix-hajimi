@@ -22,37 +22,65 @@ type KeyInfo struct {
 	Type     string `json:"type"`     // api_key, project_key
 }
 
+// KeyTier key层级类型
+type KeyTier string
+
+const (
+	TierUnknown KeyTier = "unknown"
+	TierFree    KeyTier = "free"  
+	TierPaid    KeyTier = "paid"
+)
+
+// TierDetectionResult 层级检测结果
+type TierDetectionResult struct {
+	Key        string        `json:"key"`
+	Tier       KeyTier       `json:"tier"`
+	Confidence float64       `json:"confidence"` // 0.0-1.0 置信度
+	Method     string        `json:"method"`     // 检测方法
+	Evidence   []string      `json:"evidence"`   // 证据列表
+	Latency    time.Duration `json:"latency"`
+	Timestamp  time.Time     `json:"timestamp"`
+}
+
 // ValidationResult 验证结果
 type ValidationResult struct {
-	Key       string        `json:"key"`
-	Provider  string        `json:"provider"`
-	Type      string        `json:"type"`
-	Valid     bool          `json:"valid"`
-	Status    string        `json:"status"` // valid, invalid, rate_limited, quota_exceeded, disabled, error
-	Error     string        `json:"error,omitempty"`
-	Latency   time.Duration `json:"latency"`
-	Timestamp time.Time     `json:"timestamp"`
+	Key       string              `json:"key"`
+	Provider  string              `json:"provider"`
+	Type      string              `json:"type"`
+	Valid     bool                `json:"valid"`
+	Status    string              `json:"status"` // valid, invalid, rate_limited, quota_exceeded, disabled, error
+	Tier      *TierDetectionResult `json:"tier,omitempty"` // 可选的层级信息
+	Error     string              `json:"error,omitempty"`
+	Latency   time.Duration       `json:"latency"`
+	Timestamp time.Time           `json:"timestamp"`
 }
 
 // Validator Key验证器
 type Validator struct {
-	mu          sync.RWMutex
-	modelName   string
-	workerCount int
-	timeout     time.Duration
+	mu                 sync.RWMutex
+	modelName          string
+	tierDetectionModel string
+	workerCount        int
+	timeout            time.Duration
+	enableTierDetection bool
 }
 
 // Config 验证器配置
 type Config struct {
-	ModelName   string
-	WorkerCount int
-	Timeout     time.Duration
+	ModelName           string
+	TierDetectionModel  string
+	WorkerCount         int
+	Timeout             time.Duration
+	EnableTierDetection bool
 }
 
 // New 创建新的验证器
 func New(cfg Config) *Validator {
 	if cfg.ModelName == "" {
 		cfg.ModelName = "gemini-2.5-flash"
+	}
+	if cfg.TierDetectionModel == "" {
+		cfg.TierDetectionModel = "gemini-2.5-flash"
 	}
 	if cfg.WorkerCount == 0 {
 		cfg.WorkerCount = 5
@@ -62,9 +90,11 @@ func New(cfg Config) *Validator {
 	}
 
 	return &Validator{
-		modelName:   cfg.ModelName,
-		workerCount: cfg.WorkerCount,
-		timeout:     cfg.Timeout,
+		modelName:          cfg.ModelName,
+		tierDetectionModel: cfg.TierDetectionModel,
+		workerCount:        cfg.WorkerCount,
+		timeout:           cfg.Timeout,
+		enableTierDetection: cfg.EnableTierDetection,
 	}
 }
 
@@ -218,6 +248,18 @@ func (v *Validator) validateKeyByProvider(ctx context.Context, keyInfo KeyInfo) 
 		result.Error = err.Error()
 	}
 
+	// 如果是有效的Gemini key且启用了层级检测，进行层级检测
+	if valid && keyInfo.Provider == "gemini" && v.enableTierDetection {
+		tierResult, tierErr := v.DetectGeminiKeyTier(ctx, keyInfo.Key)
+		if tierErr == nil {
+			result.Tier = tierResult
+			logger.Infof("Detected tier for key %s: %s (confidence: %.2f)", 
+				keyInfo.Key[:10]+"...", tierResult.Tier, tierResult.Confidence)
+		} else {
+			logger.Warnf("Failed to detect tier for key %s: %v", keyInfo.Key[:10]+"...", tierErr)
+		}
+	}
+
 	return result, err
 }
 
@@ -266,6 +308,158 @@ func (v *Validator) validateGeminiKey(ctx context.Context, key string) (bool, st
 	}
 
 	return true, "valid", nil
+}
+
+// DetectGeminiKeyTier 检测Gemini Key层级
+func (v *Validator) DetectGeminiKeyTier(ctx context.Context, key string) (*TierDetectionResult, error) {
+	start := time.Now()
+	
+	result := &TierDetectionResult{
+		Key:        key,
+		Tier:       TierUnknown,
+		Confidence: 0.0,
+		Timestamp:  start,
+		Evidence:   make([]string, 0),
+	}
+
+	// 创建客户端
+	client, err := genai.NewClient(ctx, option.WithAPIKey(key))
+	if err != nil {
+		result.Latency = time.Since(start)
+		return result, fmt.Errorf("failed to create client: %w", err)
+	}
+	defer client.Close()
+
+	// 方法1: Rate Limit探测
+	tierFromRate, evidenceRate := v.detectTierByRateLimit(ctx, client)
+	result.Evidence = append(result.Evidence, evidenceRate...)
+
+	// 方法2: 模型访问测试（尝试付费模型特性）
+	tierFromModel, evidenceModel := v.detectTierByModelAccess(ctx, client)
+	result.Evidence = append(result.Evidence, evidenceModel...)
+
+	// 综合判断
+	result.Tier, result.Confidence = v.combineTierResults(tierFromRate, tierFromModel)
+	result.Method = "rate_limit+model_access"
+	result.Latency = time.Since(start)
+
+	return result, nil
+}
+
+// detectTierByRateLimit 通过Rate Limit检测层级
+func (v *Validator) detectTierByRateLimit(ctx context.Context, client *genai.Client) (KeyTier, []string) {
+	evidence := make([]string, 0)
+	model := client.GenerativeModel(v.tierDetectionModel)
+	
+	// 快速连续请求测试
+	const testRequests = 3
+	successCount := 0
+	rateLimitCount := 0
+	
+	for i := 0; i < testRequests; i++ {
+		testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, err := model.GenerateContent(testCtx, genai.Text("test"))
+		cancel()
+		
+		if err != nil {
+			errStr := err.Error()
+			if contains(errStr, "RATE_LIMIT") || contains(errStr, "RESOURCE_EXHAUSTED") || contains(errStr, "QUOTA_EXCEEDED") {
+				rateLimitCount++
+				evidence = append(evidence, fmt.Sprintf("rate_limit_hit_request_%d", i+1))
+			}
+		} else {
+			successCount++
+		}
+		
+		// 短间隔延迟（模拟快速请求）
+		if i < testRequests-1 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	
+	// 判断逻辑：免费账户更容易触发rate limit
+	if rateLimitCount >= 2 {
+		evidence = append(evidence, fmt.Sprintf("high_rate_limit_ratio_%d/%d", rateLimitCount, testRequests))
+		return TierFree, evidence
+	} else if successCount >= 2 {
+		evidence = append(evidence, fmt.Sprintf("low_rate_limit_ratio_%d/%d", rateLimitCount, testRequests))
+		return TierPaid, evidence
+	}
+	
+	return TierUnknown, evidence
+}
+
+// detectTierByModelAccess 通过模型访问检测层级
+func (v *Validator) detectTierByModelAccess(ctx context.Context, client *genai.Client) (KeyTier, []string) {
+	evidence := make([]string, 0)
+	
+	// 测试高级模型特性（如长上下文）
+	model := client.GenerativeModel(v.tierDetectionModel)
+	
+	// 设置较大的上下文长度来测试
+	testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	
+	// 使用相对较长的输入测试上下文处理能力
+	longInput := strings.Repeat("This is a test input to check context handling capabilities. ", 50)
+	resp, err := model.GenerateContent(testCtx, genai.Text(longInput))
+	
+	if err != nil {
+		errStr := err.Error()
+		if contains(errStr, "context") || contains(errStr, "token") || contains(errStr, "length") {
+			evidence = append(evidence, "context_limit_restriction")
+			return TierFree, evidence
+		} else if contains(errStr, "RATE_LIMIT") || contains(errStr, "QUOTA_EXCEEDED") {
+			evidence = append(evidence, "rate_limit_on_complex_request")
+			return TierFree, evidence
+		}
+	} else if resp != nil {
+		evidence = append(evidence, "handled_complex_request_successfully")
+		return TierPaid, evidence
+	}
+	
+	return TierUnknown, evidence
+}
+
+// combineTierResults 综合多种检测结果
+func (v *Validator) combineTierResults(tierFromRate, tierFromModel KeyTier) (KeyTier, float64) {
+	// 权重评分
+	rateScore := 0.0
+	modelScore := 0.0
+	
+	switch tierFromRate {
+	case TierFree:
+		rateScore = -1.0
+	case TierPaid:
+		rateScore = 1.0
+	}
+	
+	switch tierFromModel {
+	case TierFree:
+		modelScore = -1.0
+	case TierPaid:
+		modelScore = 1.0
+	}
+	
+	// 加权平均（rate limit检测权重更高）
+	finalScore := (rateScore * 0.7) + (modelScore * 0.3)
+	confidence := (abs(finalScore) + abs(rateScore) + abs(modelScore)) / 3.0
+	
+	if finalScore < -0.3 {
+		return TierFree, confidence
+	} else if finalScore > 0.3 {
+		return TierPaid, confidence
+	}
+	
+	return TierUnknown, confidence * 0.5 // 降低未知结果的置信度
+}
+
+// abs 绝对值函数
+func abs(x float64) float64 {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 // validateOpenAIKey 验证OpenAI API Key
@@ -368,9 +562,11 @@ func (v *Validator) validateClaudeKey(ctx context.Context, keyInfo KeyInfo) (boo
 // GetStats 获取验证统计信息
 func (v *Validator) GetStats() map[string]interface{} {
 	return map[string]interface{}{
-		"model_name":   v.modelName,
-		"worker_count": v.workerCount,
-		"timeout":      v.timeout.String(),
+		"model_name":            v.modelName,
+		"tier_detection_model":  v.tierDetectionModel,
+		"worker_count":          v.workerCount,
+		"timeout":               v.timeout.String(),
+		"enable_tier_detection": v.enableTierDetection,
 	}
 }
 
@@ -392,4 +588,39 @@ func indexOf(s, substr string) int {
 		}
 	}
 	return -1
+}
+
+// ValidateKeyWithTier 验证密钥并检测层级
+func (v *Validator) ValidateKeyWithTier(ctx context.Context, key string) (*ValidationResult, error) {
+	// 先进行基础验证
+	result, err := v.ValidateKey(ctx, key)
+	if err != nil || !result.Valid {
+		return result, err
+	}
+
+	// 如果是Gemini key且启用了层级检测，进行层级检测
+	if result.Provider == "gemini" && v.enableTierDetection {
+		tierResult, tierErr := v.DetectGeminiKeyTier(ctx, key)
+		if tierErr == nil {
+			result.Tier = tierResult
+		}
+	}
+
+	return result, nil
+}
+
+// SetTierDetectionEnabled 设置是否启用层级检测
+func (v *Validator) SetTierDetectionEnabled(enabled bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.enableTierDetection = enabled
+}
+
+// SetTierDetectionModel 设置层级检测使用的模型
+func (v *Validator) SetTierDetectionModel(model string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if model != "" {
+		v.tierDetectionModel = model
+	}
 }

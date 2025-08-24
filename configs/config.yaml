@@ -23,6 +23,14 @@ scanner:
     - "spec"
     - "demo"
     - "mock"
+  
+  # 验证器配置
+  validator:
+    model_name: "gemini-2.5-flash"
+    tier_detection_model: "gemini-2.5-flash"
+    worker_count: 5
+    timeout: 30s
+    enable_tier_detection: false  # 设为true启用层级检测
 
 storage:
   type: "sqlite"  # sqlite, postgres, file

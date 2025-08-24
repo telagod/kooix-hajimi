@@ -1,8 +1,16 @@
 # Kooix Hajimi
 
-一个高性能的GitHub API密钥发现工具的Go重构版本，具备Web界面和现代化架构。
+一个高性能的多提供商API密钥发现工具的Go重构版本，支持Gemini、OpenAI、Claude密钥发现和智能层级检测。
 
 ## 🚀 主要特性
+
+### 🔑 多提供商API密钥支持
+- **Gemini API**: `AIzaSy[A-Za-z0-9\-_]{33}` 模式识别
+- **OpenAI API**: `sk-[A-Za-z0-9]{48}` 和 `sk-proj-[A-Za-z0-9]{48}` 模式
+- **Claude API**: `sk-ant-api03-[A-Za-z0-9\-_]{95}AA` 模式
+- **智能验证**: HTTP请求验证，成本优化的检测方案
+- **错误分类**: 精确识别无效密钥、限流状态、账户禁用等
+- **层级检测**: 自动识别Gemini免费/付费账户，优先使用付费密钥
 
 ### 性能提升
 - **高并发扫描**: 使用goroutines实现真正的并发处理
@@ -10,12 +18,13 @@
 - **内存优化**: 低内存占用，支持大规模扫描
 - **快速部署**: 单二进制文件，秒级启动
 
-### 功能增强
-- **实时Web界面**: 现代化仪表板和监控
+### 🌐 Web界面和配置管理
+- **实时Web界面**: 现代化仪表板和设置页面
+- **无需环境变量**: Web界面直接配置，实时生效
 - **多存储支持**: SQLite、PostgreSQL支持
 - **WebSocket实时更新**: 实时状态和进度推送
 - **RESTful API**: 完整的API接口
-- **配置热更新**: 无需重启修改配置
+- **密钥管理**: 层级显示、批量操作、智能过滤
 
 ### 架构改进
 - **模块化设计**: 清晰的分层架构
@@ -167,6 +176,14 @@ scanner:
   batch_size: 100       # 批处理大小
   scan_interval: 10s    # 扫描间隔
   auto_start: false     # 自动启动
+  
+  # 验证器配置 🆕
+  validator:
+    model_name: "gemini-2.5-flash"           # 验证模型
+    tier_detection_model: "gemini-2.5-flash" # 层级检测模型
+    worker_count: 5                          # 验证器worker数
+    timeout: 30s                             # 验证超时
+    enable_tier_detection: true              # 启用层级检测
 
 # Web服务配置  
 web:
@@ -179,6 +196,12 @@ web:
 storage:
   type: "sqlite"        # sqlite, postgres
   dsn: "data/hajimi-king.db"
+
+# 限流配置
+rate_limit:
+  enabled: true
+  requests_per_minute: 30
+  adaptive_enabled: true    # 自适应限流
 ```
 
 ### 环境变量
@@ -189,6 +212,8 @@ storage:
 | `HAJIMI_LOG_LEVEL` | 日志级别 | info |
 | `HAJIMI_WEB_PORT` | Web服务端口 | 8080 |
 | `HAJIMI_SCANNER_WORKER_COUNT` | 扫描并发数 | 20 |
+| `HAJIMI_VALIDATOR_MODEL_NAME` | 验证模型 | gemini-2.5-flash |
+| `HAJIMI_ENABLE_TIER_DETECTION` | 启用层级检测 | true |
 
 ## 🖥️ Web界面功能
 
@@ -199,10 +224,33 @@ storage:
 - 最近发现的密钥列表
 
 ### 密钥管理
-- 有效密钥列表和详情
+- 多提供商密钥列表和详情
+- 智能层级显示（免费/付费/未知）
 - 限流密钥管理
 - 批量操作和搜索
-- 导出功能
+- 按层级和提供商过滤
+
+### 🖥️ Web界面功能
+
+### 仪表板
+- 实时扫描状态监控
+- 多提供商密钥发现统计图表
+- 系统资源使用情况
+- 最近发现的密钥列表
+
+### 密钥管理
+- **多提供商密钥**: Gemini、OpenAI、Claude密钥统一管理
+- **智能层级显示**: 免费/付费/未知层级，置信度显示
+- **提供商过滤**: 按API提供商类型筛选
+- **批量操作**: 多选删除、导出等功能
+- **搜索功能**: 按仓库名、文件路径搜索
+
+### 设置页面 🆕
+- **验证器设置**: 验证模型、层级检测模型、worker配置
+- **扫描器设置**: 并发数、批次大小、扫描间隔、日期范围
+- **限流设置**: 请求频率、突发大小、自适应限流
+- **层级筛选**: 优先使用付费密钥、按层级过滤
+- **实时配置**: 配置更改立即生效，无需重启服务器
 
 ### 扫描控制
 - 一键启动/停止扫描
@@ -216,6 +264,26 @@ storage:
 - 错误统计和告警
 - 系统健康检查
 
+## 🆕 新功能亮点
+
+### 多提供商API密钥支持
+- **全面支持**: 支持Gemini、OpenAI、Claude三大主流AI服务商
+- **智能检测**: 使用优化的正则表达式和HTTP验证
+- **统一管理**: 单一界面管理所有类型的API密钥
+- **错误分类**: 精确区分无效、限流、禁用等状态
+
+### 智能层级检测系统
+- **自动识别**: 通过模型访问测试区分免费/付费Gemini账户
+- **置信度评估**: 提供检测结果的可信度评分
+- **优先级管理**: 优先使用付费密钥，提高成功率
+- **可配置检测**: 支持自定义检测模型和参数
+
+### Web配置管理
+- **零依赖配置**: 完全通过Web界面配置，无需修改环境变量
+- **实时生效**: 配置更改立即生效，无需重启服务
+- **可视化设置**: 直观的表单界面，支持参数验证
+- **配置持久化**: 自动保存到配置文件，重启后保持
+
 ## 📊 性能对比
 
 | 指标 | Python版本 | Go版本 | 提升 |
@@ -225,6 +293,8 @@ storage:
 | 启动时间 | ~5s | ~0.5s | 10x |
 | 扫描速度 | 基准 | 5-10x | 5-10x |
 | 部署大小 | ~200MB | ~50MB | 4x |
+| API提供商 | 仅Gemini | Gemini/OpenAI/Claude | 3x |
+| 层级检测 | 无 | 智能检测 | ∞ |
 
 ## 🔧 API接口
 
@@ -238,9 +308,13 @@ storage:
 - `GET /api/scan/status` - 扫描状态
 
 ### 密钥管理
-- `GET /api/keys/valid` - 获取有效密钥
+- `GET /api/keys/valid` - 获取有效密钥（支持提供商、层级过滤）
 - `GET /api/keys/rate-limited` - 获取限流密钥
 - `DELETE /api/keys/valid/:id` - 删除密钥
+
+### 配置管理 🆕
+- `GET /api/config` - 获取当前配置
+- `PUT /api/config` - 更新配置（实时生效）
 
 ### WebSocket
 - `WS /api/ws` - 实时数据推送

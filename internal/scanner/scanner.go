@@ -69,9 +69,25 @@ func New(cfg *config.Config) (*Scanner, error) {
 
 	// 创建验证器
 	validatorConfig := validator.Config{
-		ModelName:   "gemini-2.5-flash",
-		WorkerCount: 5,
-		Timeout:     30 * time.Second,
+		ModelName:           cfg.Scanner.Validator.ModelName,
+		TierDetectionModel:  cfg.Scanner.Validator.TierDetectionModel,
+		WorkerCount:         cfg.Scanner.Validator.WorkerCount,
+		Timeout:             cfg.Scanner.Validator.Timeout,
+		EnableTierDetection: cfg.Scanner.Validator.EnableTierDetection,
+	}
+	
+	// 设置默认值（如果配置中未设置）
+	if validatorConfig.ModelName == "" {
+		validatorConfig.ModelName = "gemini-2.5-flash"
+	}
+	if validatorConfig.TierDetectionModel == "" {
+		validatorConfig.TierDetectionModel = "gemini-2.5-flash"
+	}
+	if validatorConfig.WorkerCount == 0 {
+		validatorConfig.WorkerCount = 5
+	}
+	if validatorConfig.Timeout == 0 {
+		validatorConfig.Timeout = 30 * time.Second
 	}
 	keyValidator := validator.New(validatorConfig)
 

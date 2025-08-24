@@ -23,6 +23,7 @@ type Server struct {
 	scanner  *scanner.Scanner
 	storage  storage.Storage
 	config   config.WebConfig
+	appConfig *config.Config // 添加完整配置引用
 	upgrader websocket.Upgrader
 }
 
@@ -31,6 +32,38 @@ type Response struct {
 	Code    int         `json:"code"`
 	Message string      `json:"message"`
 	Data    interface{} `json:"data,omitempty"`
+}
+
+// ConfigUpdateRequest 配置更新请求
+type ConfigUpdateRequest struct {
+	Scanner   *ScannerConfigUpdate   `json:"scanner,omitempty"`
+	Validator *ValidatorConfigUpdate `json:"validator,omitempty"`
+	RateLimit *RateLimitConfigUpdate `json:"rate_limit,omitempty"`
+}
+
+// ScannerConfigUpdate 扫描器配置更新
+type ScannerConfigUpdate struct {
+	WorkerCount   *int  `json:"worker_count,omitempty"`
+	BatchSize     *int  `json:"batch_size,omitempty"`
+	DateRangeDays *int  `json:"date_range_days,omitempty"`
+	AutoStart     *bool `json:"auto_start,omitempty"`
+}
+
+// ValidatorConfigUpdate 验证器配置更新
+type ValidatorConfigUpdate struct {
+	ModelName           *string `json:"model_name,omitempty"`
+	TierDetectionModel  *string `json:"tier_detection_model,omitempty"`
+	WorkerCount         *int    `json:"worker_count,omitempty"`
+	Timeout             *int    `json:"timeout,omitempty"` // 秒数
+	EnableTierDetection *bool   `json:"enable_tier_detection,omitempty"`
+}
+
+// RateLimitConfigUpdate 限流配置更新
+type RateLimitConfigUpdate struct {
+	Enabled           *bool `json:"enabled,omitempty"`
+	RequestsPerMinute *int  `json:"requests_per_minute,omitempty"`
+	BurstSize         *int  `json:"burst_size,omitempty"`
+	AdaptiveEnabled   *bool `json:"adaptive_enabled,omitempty"`
 }
 
 // New 创建Web服务器
@@ -59,10 +92,11 @@ func New(cfg *config.Config, scanner *scanner.Scanner) (*Server, error) {
 	}
 
 	server := &Server{
-		router:  router,
-		scanner: scanner,
-		storage: store,
-		config:  cfg.Web,
+		router:    router,
+		scanner:   scanner,
+		storage:   store,
+		config:    cfg.Web,
+		appConfig: cfg, // 保存完整配置引用
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true // 允许所有来源，生产环境需要严格控制
@@ -399,13 +433,27 @@ func (s *Server) handleDeleteRateLimitedKey(c *gin.Context) {
 
 // handleGetConfig 获取配置
 func (s *Server) handleGetConfig(c *gin.Context) {
-	// 返回安全的配置信息（不包含敏感信息）
+	// 返回完整的配置信息（不包含敏感信息如tokens）
 	config := map[string]interface{}{
 		"scanner": map[string]interface{}{
-			"worker_count":   10, // TODO: 从实际配置获取
-			"scan_interval":  "10s",
-			"auto_start":     false,
-			"date_range_days": 730,
+			"worker_count":    s.appConfig.Scanner.WorkerCount,
+			"batch_size":      s.appConfig.Scanner.BatchSize,
+			"scan_interval":   s.appConfig.Scanner.ScanInterval.Seconds(),
+			"auto_start":      s.appConfig.Scanner.AutoStart,
+			"date_range_days": s.appConfig.Scanner.DateRangeDays,
+		},
+		"validator": map[string]interface{}{
+			"model_name":            s.appConfig.Scanner.Validator.ModelName,
+			"tier_detection_model":  s.appConfig.Scanner.Validator.TierDetectionModel,
+			"worker_count":          s.appConfig.Scanner.Validator.WorkerCount,
+			"timeout":               s.appConfig.Scanner.Validator.Timeout.Seconds(),
+			"enable_tier_detection": s.appConfig.Scanner.Validator.EnableTierDetection,
+		},
+		"rate_limit": map[string]interface{}{
+			"enabled":            s.appConfig.RateLimit.Enabled,
+			"requests_per_minute": s.appConfig.RateLimit.RequestsPerMinute,
+			"burst_size":         s.appConfig.RateLimit.BurstSize,
+			"adaptive_enabled":   s.appConfig.RateLimit.AdaptiveEnabled,
 		},
 		"web": map[string]interface{}{
 			"port": s.config.Port,
@@ -422,10 +470,79 @@ func (s *Server) handleGetConfig(c *gin.Context) {
 
 // handleUpdateConfig 更新配置
 func (s *Server) handleUpdateConfig(c *gin.Context) {
-	// TODO: 实现配置更新
-	c.JSON(http.StatusNotImplemented, Response{
-		Code:    1,
-		Message: "Configuration update not implemented yet",
+	var req ConfigUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, Response{
+			Code:    1,
+			Message: "Invalid request format: " + err.Error(),
+		})
+		return
+	}
+
+	logger.Info("Received configuration update request")
+
+	// 更新扫描器配置
+	if req.Scanner != nil {
+		if req.Scanner.WorkerCount != nil {
+			s.appConfig.Scanner.WorkerCount = *req.Scanner.WorkerCount
+			logger.Infof("Updated scanner worker count to %d", *req.Scanner.WorkerCount)
+		}
+		if req.Scanner.BatchSize != nil {
+			s.appConfig.Scanner.BatchSize = *req.Scanner.BatchSize
+		}
+		if req.Scanner.DateRangeDays != nil {
+			s.appConfig.Scanner.DateRangeDays = *req.Scanner.DateRangeDays
+		}
+		if req.Scanner.AutoStart != nil {
+			s.appConfig.Scanner.AutoStart = *req.Scanner.AutoStart
+		}
+	}
+
+	// 更新验证器配置
+	if req.Validator != nil {
+		if req.Validator.ModelName != nil {
+			s.appConfig.Scanner.Validator.ModelName = *req.Validator.ModelName
+		}
+		if req.Validator.TierDetectionModel != nil {
+			s.appConfig.Scanner.Validator.TierDetectionModel = *req.Validator.TierDetectionModel
+		}
+		if req.Validator.WorkerCount != nil {
+			s.appConfig.Scanner.Validator.WorkerCount = *req.Validator.WorkerCount
+		}
+		if req.Validator.Timeout != nil {
+			s.appConfig.Scanner.Validator.Timeout = time.Duration(*req.Validator.Timeout) * time.Second
+		}
+		if req.Validator.EnableTierDetection != nil {
+			s.appConfig.Scanner.Validator.EnableTierDetection = *req.Validator.EnableTierDetection
+			logger.Infof("Updated tier detection enabled to %v", *req.Validator.EnableTierDetection)
+		}
+	}
+
+	// 更新限流配置
+	if req.RateLimit != nil {
+		if req.RateLimit.Enabled != nil {
+			s.appConfig.RateLimit.Enabled = *req.RateLimit.Enabled
+		}
+		if req.RateLimit.RequestsPerMinute != nil {
+			s.appConfig.RateLimit.RequestsPerMinute = *req.RateLimit.RequestsPerMinute
+		}
+		if req.RateLimit.BurstSize != nil {
+			s.appConfig.RateLimit.BurstSize = *req.RateLimit.BurstSize
+		}
+		if req.RateLimit.AdaptiveEnabled != nil {
+			s.appConfig.RateLimit.AdaptiveEnabled = *req.RateLimit.AdaptiveEnabled
+		}
+	}
+
+	// 通知Scanner更新配置（如果需要）
+	// 注意：某些配置更改可能需要重启Scanner才能生效
+
+	c.JSON(http.StatusOK, Response{
+		Code:    0,
+		Message: "Configuration updated successfully",
+		Data: map[string]interface{}{
+			"note": "Some changes may require service restart to take effect",
+		},
 	})
 }
 

@@ -11,6 +11,8 @@ type ValidKey struct {
 	Key         string    `json:"key" db:"key_value"`
 	Provider    string    `json:"provider" db:"provider"`    // gemini, openai, claude
 	KeyType     string    `json:"key_type" db:"key_type"`    // api_key, project_key
+	Tier        string    `json:"tier" db:"tier"`            // free, paid, unknown
+	TierConfidence float64 `json:"tier_confidence" db:"tier_confidence"` // 0.0-1.0
 	Source      string    `json:"source" db:"source"`
 	RepoName    string    `json:"repo_name" db:"repo_name"`
 	FilePath    string    `json:"file_path" db:"file_path"`
@@ -72,14 +74,17 @@ type ScanStats struct {
 
 // KeyFilter 密钥过滤条件
 type KeyFilter struct {
-	Source     string    `json:"source,omitempty"`
-	RepoName   string    `json:"repo_name,omitempty"`
-	DateFrom   time.Time `json:"date_from,omitempty"`
-	DateTo     time.Time `json:"date_to,omitempty"`
-	Limit      int       `json:"limit,omitempty"`
-	Offset     int       `json:"offset,omitempty"`
-	OrderBy    string    `json:"order_by,omitempty"`
-	OrderDir   string    `json:"order_dir,omitempty"`
+	Source         string    `json:"source,omitempty"`
+	Provider       string    `json:"provider,omitempty"`    // gemini, openai, claude
+	Tier           string    `json:"tier,omitempty"`        // free, paid, unknown
+	RepoName       string    `json:"repo_name,omitempty"`
+	DateFrom       time.Time `json:"date_from,omitempty"`
+	DateTo         time.Time `json:"date_to,omitempty"`
+	Limit          int       `json:"limit,omitempty"`
+	Offset         int       `json:"offset,omitempty"`
+	OrderBy        string    `json:"order_by,omitempty"`
+	OrderDir       string    `json:"order_dir,omitempty"`
+	PrioritizePaid bool      `json:"prioritize_paid,omitempty"` // 优先返回付费key
 }
 
 // Storage 存储接口
@@ -91,6 +96,10 @@ type Storage interface {
 	GetRateLimitedKeys(ctx context.Context, filter *KeyFilter) ([]*RateLimitedKey, int64, error)
 	DeleteValidKey(ctx context.Context, id int64) error
 	DeleteRateLimitedKey(ctx context.Context, id int64) error
+	
+	// 层级相关方法
+	GetValidKeysByTier(ctx context.Context, provider string, tier string) ([]*ValidKey, error)
+	UpdateKeyTier(ctx context.Context, keyID int64, tier string, confidence float64) error
 	
 	// 检查点管理
 	SaveCheckpoint(ctx context.Context, checkpoint *Checkpoint) error
