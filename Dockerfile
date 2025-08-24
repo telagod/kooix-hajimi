@@ -37,7 +37,7 @@ RUN go build \
     cmd/cli/main.go
 
 # Final stage - minimal runtime image
-FROM alpine:latest
+FROM debian:bullseye-slim
 
 # Install runtime dependencies
 RUN apk --no-cache add \
