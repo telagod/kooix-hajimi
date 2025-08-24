@@ -40,12 +40,12 @@ RUN go build \
 FROM debian:bullseye-slim
 
 # Install runtime dependencies
-RUN apk --no-cache add \
-    ca-certificates \
-    tzdata && \
-    addgroup -g 1001 kooix && \
-    adduser -D -s /bin/sh -u 1001 -G kooix kooix
-
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates tzdata wget && \
+    groupadd -g 1001 kooix && \
+    useradd -u 1001 -g kooix -s /bin/sh -m kooix && \
+    rm -rf /var/lib/apt/lists/*
+    
 WORKDIR /app
 
 # Copy binaries from builder
