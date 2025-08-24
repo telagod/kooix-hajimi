@@ -1,40 +1,60 @@
-# Multi-stage build for Kooix Hajimi with proper cross-platform support
-FROM golang:1.21-alpine AS builder
+# Modern multi-platform build using tonistiigi/xx for Go SQLite3 cross-compilation
+FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.4.0 AS xx
 
-# Install build dependencies
-RUN apk add --no-cache \
-    git \
-    ca-certificates \
-    tzdata \
-    gcc \
-    musl-dev \
-    sqlite-dev
+# Build stage with proper cross-compilation support
+FROM --platform=$BUILDPLATFORM golang:1.21-bullseye AS builder
+
+# Copy cross-compilation helpers
+COPY --from=xx / /
 
 WORKDIR /app
 
-# Copy go module files
+# Install build dependencies and prepare for cross-compilation
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        git \
+        ca-certificates \
+        clang \
+        lld && \
+    rm -rf /var/lib/apt/lists/*
+
+# Declare build arguments
+ARG TARGETPLATFORM
+
+# Install target-platform specific dependencies
+RUN xx-apt-get update && \
+    xx-apt-get install -y --no-install-recommends \
+        gcc \
+        libc6-dev \
+        libsqlite3-dev
+
+# Copy go module files and download dependencies
 COPY go.mod go.sum ./
 RUN go mod download
+
+# Pre-install go-sqlite3 to reduce build time
+RUN CGO_ENABLED=1 go install github.com/mattn/go-sqlite3
 
 # Copy source code
 COPY . .
 
-# Build with simplified CGO settings for better compatibility
-# Use CGO_ENABLED=1 but with conservative settings to avoid cross-compilation issues
+# Enable CGO for SQLite3 and build with cross-compilation support
 ENV CGO_ENABLED=1
 
-# Build applications with SQLite optimizations
-RUN go build \
+# Build applications using xx-go wrapper
+RUN xx-go build \
     -tags "sqlite_omit_load_extension" \
     -ldflags "-s -w" \
     -o kooix-hajimi-server \
-    cmd/server/main.go
+    cmd/server/main.go && \
+    xx-verify kooix-hajimi-server
 
-RUN go build \
+RUN xx-go build \
     -tags "sqlite_omit_load_extension" \
     -ldflags "-s -w" \
     -o kooix-hajimi-cli \
-    cmd/cli/main.go
+    cmd/cli/main.go && \
+    xx-verify kooix-hajimi-cli
 
 # Final stage - minimal runtime image
 FROM debian:bullseye-slim
@@ -45,7 +65,7 @@ RUN apt-get update && \
     groupadd -g 1001 kooix && \
     useradd -u 1001 -g kooix -s /bin/sh -m kooix && \
     rm -rf /var/lib/apt/lists/*
-    
+
 WORKDIR /app
 
 # Copy binaries from builder
