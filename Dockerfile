@@ -1,89 +1,74 @@
-# 构建Go版本的Hajimi King - Multi-platform support
-FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS builder
+# Multi-stage build for Kooix Hajimi with proper cross-platform support
+FROM golang:1.21-alpine AS builder
 
-# 声明构建参数
-ARG TARGETPLATFORM
-ARG BUILDPLATFORM
-ARG TARGETOS
-ARG TARGETARCH
-
-# 安装必要的包，包含跨平台构建工具
+# Install build dependencies
 RUN apk add --no-cache \
     git \
     ca-certificates \
     tzdata \
     gcc \
     musl-dev \
-    sqlite-dev \
-    build-base
+    sqlite-dev
 
 WORKDIR /app
 
-# 复制go mod文件
+# Copy go module files
 COPY go.mod go.sum ./
-
-# 下载依赖
 RUN go mod download
 
-# 复制源代码
+# Copy source code
 COPY . .
 
-# 设置SQLite编译选项，解决多平台兼容性问题
+# Build with simplified CGO settings for better compatibility
+# Use CGO_ENABLED=1 but with conservative settings to avoid cross-compilation issues
 ENV CGO_ENABLED=1
-ENV GOOS=$TARGETOS
-ENV GOARCH=$TARGETARCH
 
-# 为不同架构设置不同的编译选项
-RUN case $TARGETARCH in \
-        amd64) \
-            export CC=gcc; \
-            export CGO_LDFLAGS="-static -w -s"; \
-            ;; \
-        arm64) \
-            export CC=gcc; \
-            export CGO_LDFLAGS="-static -w -s"; \
-            ;; \
-        *) \
-            export CC=gcc; \
-            export CGO_LDFLAGS="-static -w -s"; \
-            ;; \
-    esac && \
-    go build -tags "sqlite_omit_load_extension netgo osusergo static_build" \
-             -ldflags "-linkmode external -extldflags '-static' -s -w" \
-             -a -installsuffix netgo \
-             -o kooix-hajimi-server cmd/server/main.go && \
-    go build -tags "sqlite_omit_load_extension netgo osusergo static_build" \
-             -ldflags "-linkmode external -extldflags '-static' -s -w" \
-             -a -installsuffix netgo \
-             -o kooix-hajimi-cli cmd/cli/main.go
+# Build applications with SQLite optimizations
+RUN go build \
+    -tags "sqlite_omit_load_extension" \
+    -ldflags "-s -w" \
+    -o kooix-hajimi-server \
+    cmd/server/main.go
 
-# 最终镜像 - 使用alpine获得良好的兼容性
+RUN go build \
+    -tags "sqlite_omit_load_extension" \
+    -ldflags "-s -w" \
+    -o kooix-hajimi-cli \
+    cmd/cli/main.go
+
+# Final stage - minimal runtime image
 FROM alpine:latest
 
-# 安装必要的运行时包  
-RUN apk --no-cache add ca-certificates tzdata && \
+# Install runtime dependencies
+RUN apk --no-cache add \
+    ca-certificates \
+    tzdata && \
     addgroup -g 1001 kooix && \
-    adduser -D -s /bin/sh -u 1001 -G kooix kooix && \
-    mkdir -p /app/data && \
-    chown -R kooix:kooix /app
+    adduser -D -s /bin/sh -u 1001 -G kooix kooix
 
 WORKDIR /app
 
-# 从构建阶段复制二进制文件
-COPY --from=builder /app/kooix-hajimi-server .
-COPY --from=builder /app/kooix-hajimi-cli .
+# Copy binaries from builder
+COPY --from=builder /app/kooix-hajimi-server ./
+COPY --from=builder /app/kooix-hajimi-cli ./
 
-# 复制配置和静态文件
-COPY --from=builder /app/configs ./configs
-COPY --from=builder /app/web ./web
+# Copy application resources
+COPY --from=builder /app/configs ./configs/
+COPY --from=builder /app/web ./web/
 
-# 更改文件所有权
-RUN chown -R kooix:kooix /app
+# Create data directory and set permissions
+RUN mkdir -p /app/data && \
+    chown -R kooix:kooix /app
 
+# Switch to non-root user
 USER kooix
 
-# 暴露端口
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/api/status || exit 1
+
+# Expose port
 EXPOSE 8080
 
-# 启动命令
+# Default command
 CMD ["./kooix-hajimi-server"]
